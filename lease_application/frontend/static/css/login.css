@@ -1,0 +1,74 @@
+/**
+ * Login Page Styles
+ */
+
+body {
+    background: var(--color-brand-green);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.login-container {
+    background: white;
+    padding: 60px 40px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    width: 100%;
+    max-width: 420px;
+}
+
+.login-container h1 {
+    text-align: center;
+    color: var(--color-brand-green);
+    margin-bottom: 30px;
+    font-size: 1.75rem;
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
+}
+
+.tabs {
+    display: flex;
+    margin-bottom: 30px;
+}
+
+.tab {
+    flex: 1;
+    padding: 15px;
+    background: var(--color-sage-1);
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    transition: var(--transition-base);
+    color: var(--color-text-secondary);
+}
+
+.tab.active {
+    background: var(--color-brand-green);
+    color: white;
+}
+
+.login-container .form-group label {
+    color: var(--color-text-secondary);
+    font-weight: 500;
+}
+
+.login-container input {
+    width: 100%;
+    border: 2px solid var(--color-border-sage);
+}
+
+.login-container input:focus {
+    border-color: var(--color-brand-green);
+    box-shadow: 0 0 0 3px rgba(3, 71, 55, 0.1);
+}
+
+.login-container .btn {
+    width: 100%;
+    padding: 15px;
+    font-size: 1.1rem;
+    margin-top: 10px;
+}
+

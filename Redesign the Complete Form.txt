@@ -1,0 +1,217 @@
+Cursor Prompt: Redesign the Complete Lease Accounting Form (UI/UX Specification)
+Objective:
+ Redesign the existing Complete Lease Accounting Form into a modern, clean, and structured layout as per the new design and field requirements. The goal is to improve user flow, field grouping, and clarity — similar to professional accounting automation tools like Trullion.
+
+🔹 Overall Layout
+Two-column split interface:
+Left Side: Input form categorized by logical sections.
+Right Side: Preview of uploaded lease document (PDF) for AI extraction.
+Header Section:
+Title: “Complete Lease Accounting Form”
+Action Buttons:
+Upload Contract – AI Extraction
+Manual Input
+Save Draft, Submit, Reset
+Progress or Status Indicator (Draft / Submitted / Approved)
+
+🔹 Left Panel: Input Form (Structured by Categories)
+Each category should be presented as a collapsible/accordion section with clear headings and spacing. Mandatory fields show a red asterisk (*). Optional fields appear only when relevant toggle switches are turned ON.
+
+1️⃣ Basic Details
+Fields:
+Agreement title
+Company name
+Asset class
+Asset title
+Asset ID/Code
+Currency (Dropdown)
+Counterparty name
+Asset location
+Checkbox: “Related party transaction”
+Option to add other custom fields
+UX behavior:
+Each input has inline labels and contextual tooltips.
+Section header fixed while scrolling within the category.
+
+2️⃣ Date Details
+Fields:
+Lease start date
+Lease end date
+Auto computation:
+When start and end dates are entered → system auto-calculates No. of months and days.
+If user enters No. of months, end date auto-updates.
+Rent agreement date (optional)
+Posting date:
+Yes/No switch → “Is posting date same as lease start date?”
+If No → show date field for manual posting date entry
+Field: “Judgements used in lease terms above” (multi-line text area)
+Renewal option:
+Yes/No switch → if Yes → show:
+Renewal date
+Renewal term
+Button: “Add another renewal option”
+Termination option:
+Yes/No switch → if Yes → show:
+Termination date
+Termination penalty amount
+UX behavior:
+Real-time date validation (end date can’t be before start date).
+Auto tooltips showing calculated months/days.
+
+3️⃣ Rental Information
+Fields:
+Payment type: Dropdown — Advance or Arrear
+If Arrear → auto-set “Pay on day of month” = “Last”
+First sequential payment date (Date picker)
+Rent payment frequency: Dropdown — Monthly / Quarterly / Semi-annually / Annually / Custom
+Payment interval: Auto-populated based on selected frequency (1, 3, 6, 12 or custom)
+Pay on day of month (dropdown 1–31 or “Last Day”)
+Rent accrual day (auto = lease start day by default)
+Lease escalation details (optional group):
+Rental amount
+Escalation start date
+Escalation frequency in months
+Button: “Auto Populate Lease Rental”
+Populated rental table (auto-generated after above button pressed):
+Rental 1: Start date / End date / No. of rentals / Amount
+Button: “Add another rent field”
+Additional payment on commencement date:
+Button: “Add Custom Payment”
+Fields: Payment date, Amount
+Non-lease and variable lease components:
+Yes/No switch (default: No)
+If Yes → show:
+Non-lease component amount
+Variable lease component amount
+UX behavior:
+Clicking “Auto Populate Lease Rental” triggers a generated rental schedule table.
+Each table row editable or removable.
+Clear separation of lease and non-lease components.
+
+4️⃣ Discount Rate & Valuation
+Fields:
+Fair value of asset
+Implicit rate of return (auto-computed when fair value given)
+Incremental borrowing rate (manual input)
+Mandatory: one of IRR or IBR must be filled.
+Switch: “Use IRR or IBR for accounting”
+Default: whichever field is filled
+Compounding month (auto-derived from Rent payment frequency, editable)
+UX behavior:
+Inline validation when both IRR and IBR missing.
+Helper text explaining use of IRR vs IBR.
+
+5️⃣ Other Details
+Fields:
+Initial direct expenditure
+Lease incentive
+Purchase option at end of lease: Yes/No switch (default No)
+If Yes → show:
+Purchase option price
+Useful life of asset (in months)
+Useful life end date (auto from months input)
+Security deposit: Yes/No switch (default No)
+If Yes → show:
+Security deposit amount
+Security deposit date
+Discount rate
+Button: “Add another security deposit detail”
+Asset retirement obligation: Yes/No switch (default No)
+If Yes → show:
+Initial estimate field
+UX behavior:
+Each Yes/No toggle smoothly expands sub-fields below it.
+Sub-fields visually indented to indicate hierarchy.
+
+6️⃣ Transition Details
+Fields:
+Transition date
+Transition option: Dropdown — Full retrospective / Modified retrospective / Modified retrospective (simplified)
+UX behavior:
+Visible only when transition switch is enabled under accounting setup.
+
+7️⃣ Lease Classification
+Fields:
+Lease classification (for US GAAP)
+Short-term lease (US GAAP): Yes/No
+Short-term lease (IFRS): Yes/No
+Low-value asset: Yes/No
+Scope exemption applied: Yes/No (default No; auto Yes if either short-term or low value = Yes)
+UX behavior:
+When exemptions applied, disable downstream accounting sections.
+
+8️⃣ Cost Centers & Audit Trail
+Fields:
+Cost center name
+Allocation (text/number input for cost allocation)
+Entered by
+Last modified date
+Reviewed by
+Last reviewed date
+UX behavior:
+“Entered by” and “Reviewed by” fields show user pick-list from internal directory (if integrated).
+Auto-timestamp for modification date.
+
+9️⃣ Sublease
+Option to add sublease (Button → opens sublease details modal)
+Sublease start date
+Sublease end date
+Sublease payment details
+
+🔟 Modifications / Terminations
+Add modification: Button → opens modal
+Modification date
+Modified lease terms (optional inputs)
+Add termination: Button → opens modal
+Termination date
+Termination penalty
+
+1️⃣1️⃣ Attachments
+Option to upload supporting files (lease agreements, amendments, etc.)
+Each uploaded file shows:
+File name
+Uploaded date
+Delete icon
+Download icon
+
+1️⃣2️⃣ Custom Fields
+“Add Custom Field” button
+User can create additional name-value fields (e.g., “Approver Name”, “Branch Code”)
+
+🔹 Right Panel: PDF & AI Extraction Viewer
+PDF viewer to display uploaded contract (scrollable)
+Above viewer: summarized “AI Extracted Highlights”
+Key dates, counterparties, rental details detected
+Allow clicking extracted term → auto-highlight in document (future enhancement)
+Option to re-run extraction or clear preview
+
+🔹 General UI/UX Principles
+Simple, professional, accounting-oriented interface
+Consistent spacing and label alignment
+Sticky header/footer for Save & Submit
+Smooth animations for expanding/collapsing sections
+Error handling:
+Inline error messages near fields
+Scroll to first invalid field on submit
+Inline hints for accounting logic (e.g., “Used for IFRS 16 lease liability calculation”)
+Clear visual hierarchy:
+Section titles bold and slightly larger
+Subfields slightly indented
+Optional fields visually lighter
+Tooltips (“?” icons) explaining key accounting terms
+
+🔹 Validation & Behavior Summary
+Auto-calculation for dates, intervals, and IRR logic
+Conditional rendering for Yes/No toggles
+Editable rental and deposit lists
+Required field indicators
+Real-time field dependency updates
+
+🔹 End Result
+A fully restructured, categorized, and dynamic Lease Accounting Form where:
+Inputs are intuitive, grouped logically, and contextually revealed.
+All fields from the redesign specification are present.
+User can easily switch between AI-assisted upload or manual input modes.
+UI mimics modern accounting automation platforms with collapsible categories and responsive design.
+ 
+

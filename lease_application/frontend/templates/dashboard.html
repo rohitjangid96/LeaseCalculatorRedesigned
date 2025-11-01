@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lease Management Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">Lease Accounting System</h1>
+            </div>
+            
+            <div class="sidebar-search">
+                <input type="text" placeholder="Search..." class="search-input">
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📄</span>
+                    <span>Agreements</span>
+                </a>
+                <a href="/dashboard.html" class="nav-item active">
+                    <span class="nav-icon">🏢</span>
+                    <span>Companies</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📅</span>
+                    <span>Events</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span>Consolidated Reports</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">💱</span>
+                    <span>Foreign Exchange Rates</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">🔔</span>
+                    <span>Reminders</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📋</span>
+                    <span>Templates</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">👥</span>
+                    <span>Users & Permissions</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">❓</span>
+                    <span>Help</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <span>Parent Entity Inc.</span>
+                    <span class="user-name" id="username">User</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header-bar">
+                <span class="breadcrumb">Parent Entity Inc. > Companies</span>
+            </div>
+            
+            <!-- Page Header -->
+            <div class="page-header">
+                <h1>Companies</h1>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn-primary" onclick="createLease()">+ New Lease</button>
+                    <button class="btn-secondary" onclick="logout()" style="padding: 8px 16px;">Logout</button>
+                </div>
+            </div>
+            
+            <!-- Search Bar -->
+            <div class="search-section">
+                <input type="text" placeholder="Search" class="search-input-main">
+            </div>
+            
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Leases Table -->
+                <div class="leases-table-container">
+                    <table class="leases-table">
+                        <thead>
+                            <tr>
+                                <th>Lease ID</th>
+                                <th>Agreement Title</th>
+                                <th>Company Name</th>
+                                <th>Asset Class</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leasesTableBody">
+                            <tr>
+                                <td colspan="8" style="text-align: center; padding: 40px; color: #999;">
+                                    No leases found. <button class="btn-link" onclick="createLease()">Create your first lease</button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script>
+        async function logout() {
+            try {
+                const response = await fetch('/api/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                window.location.href = 'login.html';
+            }
+        }
+    </script>
+</body>
+</html>

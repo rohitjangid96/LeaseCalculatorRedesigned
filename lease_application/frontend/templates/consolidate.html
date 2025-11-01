@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consolidate Reports - Lease Accounting System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* Consolidate page-specific styles - Clean Minimal Modern UI */
+        .form-section {
+            background: white;
+            padding: 24px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .form-section h2 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2c3e50;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .form-group select,
+        .form-group input[type="date"],
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #2c3e50;
+            background: white;
+        }
+        
+        .form-group select:focus,
+        .form-group input[type="date"]:focus,
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.1);
+        }
+        
+        .lease-selection {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 16px;
+            background: #f8f9fa;
+        }
+        
+        .lease-checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .lease-checkbox-item:hover {
+            background-color: #f8f9fa;
+            border-color: #3498db;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .lease-checkbox-item input[type="checkbox"] {
+            margin-right: 12px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        
+        .lease-checkbox-item label {
+            flex: 1;
+            cursor: pointer;
+            margin: 0;
+            font-weight: 400;
+            font-size: 14px;
+            color: #2c3e50;
+            line-height: 1.5;
+        }
+        
+        .lease-checkbox-item input[type="checkbox"]:checked + label {
+            font-weight: 500;
+            color: #2c3e50;
+        }
+        
+        .lease-selection-empty {
+            padding: 40px;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        
+        .summary-item {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 6px;
+            border-left: 3px solid #3498db;
+        }
+        
+        .summary-item strong {
+            display: block;
+            color: #666;
+            font-size: 0.875rem;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .summary-item span {
+            display: block;
+            color: #2c3e50;
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+        
+        .scrollable {
+            max-height: 600px;
+            overflow-y: auto;
+            overflow-x: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .scrollable table {
+            width: 100%;
+            min-width: 1200px;
+            border-collapse: collapse;
+        }
+        
+        .scrollable table thead {
+            background-color: #f8f9fa;
+            color: #2c3e50;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .scrollable table th {
+            padding: 14px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: #2c3e50;
+            border-bottom: 2px solid #e0e0e0;
+            white-space: nowrap;
+        }
+        
+        .scrollable table td {
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #555;
+            font-size: 14px;
+        }
+        
+        .scrollable table tbody tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        
+        .scrollable table tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .scrollable table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .error {
+            background-color: #fee;
+            color: #c33;
+            padding: 16px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #e74c3c;
+            font-size: 14px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            font-size: 1.1rem;
+            color: #666;
+        }
+        
+        .section-header {
+            background: #f8f9fa;
+            color: #2c3e50;
+            padding: 16px 20px;
+            margin: 0;
+            border-radius: 6px 6px 0 0;
+            font-weight: 600;
+            font-size: 1.125rem;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        #results {
+            display: none;
+        }
+        
+        .statistics {
+            background: #e8f4f8;
+            padding: 16px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .statistics h3 {
+            margin-bottom: 12px;
+            color: #2c3e50;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        .statistics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+        }
+        
+        .statistics-item {
+            background: white;
+            padding: 12px;
+            border-radius: 4px;
+        }
+        
+        .statistics-item strong {
+            display: block;
+            color: #666;
+            font-size: 0.875rem;
+            margin-bottom: 4px;
+        }
+        
+        .statistics-item span {
+            display: block;
+            color: #2c3e50;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        
+        /* Navigation Tabs */
+        .nav-tabs {
+            display: flex;
+            gap: 0;
+            background: white;
+            padding: 0;
+            border-radius: 6px 6px 0 0;
+        }
+        
+        .nav-tab {
+            padding: 12px 24px;
+            border: none;
+            background: transparent;
+            color: #666;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .nav-tab:hover {
+            color: #2c3e50;
+            background: #f8f9fa;
+        }
+        
+        .nav-tab.active {
+            color: #2c3e50;
+            border-bottom-color: #3498db;
+            background: #f8f9fa;
+        }
+        
+        .tab-content {
+            display: block;
+        }
+        
+        .tab-content.hidden {
+            display: none;
+        }
+        
+        /* Key Values Cards */
+        .key-values-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .key-value-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: box-shadow 0.2s;
+        }
+        
+        .key-value-card:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .key-value-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+            color: white;
+            flex-shrink: 0;
+        }
+        
+        .key-value-icon.rou { background-color: #27ae60; }
+        .key-value-icon.liability { background-color: #e74c3c; }
+        .key-value-icon.lhi { background-color: #3498db; }
+        .key-value-icon.aro { background-color: #f39c12; }
+        .key-value-icon.interest { background-color: #95a5a6; }
+        .key-value-icon.forecast-interest { background-color: #95a5a6; }
+        .key-value-icon.amortization { background-color: #95a5a6; }
+        .key-value-icon.forecast-amortization { background-color: #95a5a6; }
+        
+        .key-value-content {
+            flex: 1;
+        }
+        
+        .key-value-label {
+            font-size: 0.875rem;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        
+        .key-value-amount {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Sidebar Navigation -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">Lease Accounting System</h1>
+            </div>
+            
+            <div class="sidebar-search">
+                <input type="text" placeholder="Search..." class="search-input">
+            </div>
+            
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📄</span>
+                    <span>Agreements</span>
+                </a>
+                <a href="/dashboard.html" class="nav-item">
+                    <span class="nav-icon">🏢</span>
+                    <span>Companies</span>
+                </a>
+                <a href="/calculate.html" class="nav-item">
+                    <span class="nav-icon">📊</span>
+                    <span>Calculate</span>
+                </a>
+                <a href="/consolidate.html" class="nav-item active">
+                    <span class="nav-icon">📈</span>
+                    <span>Consolidated Reports</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📅</span>
+                    <span>Events</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">💱</span>
+                    <span>Foreign Exchange Rates</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">🔔</span>
+                    <span>Reminders</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">📋</span>
+                    <span>Templates</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">👥</span>
+                    <span>Users & Permissions</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <span class="nav-icon">❓</span>
+                    <span>Help</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <span>Parent Entity Inc.</span>
+                    <span class="user-name" id="username">User</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Header -->
+            <div class="header-bar">
+                <span class="breadcrumb">Parent Entity Inc. > Consolidated Reports</span>
+            </div>
+            
+            <!-- Page Header -->
+            <div class="page-header">
+                <h1>Consolidated Reports</h1>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn-secondary" onclick="window.location.href='/dashboard.html'">← Home</button>
+                    <button class="btn-secondary" onclick="logout()" style="padding: 8px 16px;">Logout</button>
+                </div>
+            </div>
+            
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Select Leases Section -->
+                <div class="form-section">
+                    <h2>Select Leases and Date Range</h2>
+                    <div class="form-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <label style="margin-bottom: 0;">Select Leases (Multi-select)</label>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn-secondary" onclick="selectAllLeases(); return false;" style="padding: 6px 12px; font-size: 0.875rem; border-radius: 4px;">Select All</button>
+                                <button class="btn-secondary" onclick="deselectAllLeases(); return false;" style="padding: 6px 12px; font-size: 0.875rem; border-radius: 4px;">Deselect All</button>
+                            </div>
+                        </div>
+                        <div class="lease-selection" id="leaseSelection">
+                            <div class="lease-selection-empty">Loading leases...</div>
+                        </div>
+                        <div style="margin-top: 12px; font-size: 0.875rem; color: #666;">
+                            <span id="selectedCount">0</span> lease(s) selected
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div class="form-group">
+                            <label>From Date</label>
+                            <input type="date" id="fromDate">
+                        </div>
+                        <div class="form-group">
+                            <label>To Date</label>
+                            <input type="date" id="toDate">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>GAAP Standard</label>
+                        <select id="gaapStandard">
+                            <option value="IFRS">IFRS</option>
+                            <option value="US-GAAP">US-GAAP</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary" onclick="consolidateLeases()">Generate Consolidated Report</button>
+                </div>
+
+                <!-- Results Section -->
+                <div id="results">
+                    <!-- Navigation Tabs -->
+                    <div class="nav-tabs" style="margin-bottom: 20px; border-bottom: 2px solid #e0e0e0;">
+                        <button class="nav-tab active" onclick="showTab('overview')">Overview</button>
+                        <button class="nav-tab" onclick="showTab('results')">Individual Results</button>
+                        <button class="nav-tab" onclick="showTab('journals')">Journal Entries</button>
+                        <button class="nav-tab" onclick="showTab('reports')">Reports</button>
+                    </div>
+
+                    <!-- Overview Tab -->
+                    <div id="overviewTab" class="tab-content">
+                        <!-- Statistics -->
+                        <div class="statistics" id="statisticsSection" style="margin-bottom: 30px;">
+                            <h3>Processing Statistics</h3>
+                            <div class="statistics-grid" id="statisticsGrid"></div>
+                        </div>
+
+                        <!-- Key Values Section -->
+                        <div class="key-values-section">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <h2 style="margin: 0; color: #2c3e50; font-size: 1.25rem; font-weight: 600;">Key Values</h2>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <label style="color: #666; font-size: 14px;">As of:</label>
+                                    <input type="date" id="asOfDate" style="padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" onchange="updateKeyValues()">
+                                </div>
+                            </div>
+                            <div class="key-values-grid" id="keyValuesGrid"></div>
+                        </div>
+
+                        <!-- Charts Section -->
+                        <div style="margin-top: 30px;">
+                            <h2 style="margin-bottom: 20px; color: #2c3e50; font-size: 1.25rem; font-weight: 600;">Consolidated Net Present Value Chart</h2>
+                            <div style="background: white; padding: 20px; border-radius: 6px; border: 1px solid #e0e0e0;">
+                                <canvas id="npvChart" style="max-height: 400px;"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Additional Charts -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px;">
+                            <div>
+                                <h3 style="margin-bottom: 15px; color: #2c3e50; font-size: 1.1rem; font-weight: 600;">Total Liability & Asset Trend</h3>
+                                <div style="background: white; padding: 20px; border-radius: 6px; border: 1px solid #e0e0e0;">
+                                    <canvas id="liabilityAssetChart" style="max-height: 300px;"></canvas>
+                                </div>
+                            </div>
+                            <div>
+                                <h3 style="margin-bottom: 15px; color: #2c3e50; font-size: 1.1rem; font-weight: 600;">Total Interest & Depreciation</h3>
+                                <div style="background: white; padding: 20px; border-radius: 6px; border: 1px solid #e0e0e0;">
+                                    <canvas id="interestDepreciationChart" style="max-height: 300px;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="action-buttons" id="actionButtons" style="display: none; margin-top: 30px;">
+                            <button class="btn-primary" onclick="exportToExcel()">📥 Export to Excel</button>
+                        </div>
+                    </div>
+
+                    <!-- Results Tab -->
+                    <div id="resultsTab" class="tab-content" style="display: none;">
+                        <div style="margin-top: 20px;">
+                            <h2 class="section-header">📋 Individual Lease Results</h2>
+                            <div class="scrollable">
+                                <table id="resultsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Lease ID</th>
+                                            <th>Description</th>
+                                            <th>Asset Class</th>
+                                            <th>Opening Liability</th>
+                                            <th>Opening ROU Asset</th>
+                                            <th>Interest Expense</th>
+                                            <th>Depreciation</th>
+                                            <th>Rent Paid</th>
+                                            <th>Closing Liability Total</th>
+                                            <th>Closing ROU Asset</th>
+                                            <th>Gain/(Loss) P&L</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="resultsBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Journals Tab -->
+                    <div id="journalsTab" class="tab-content" style="display: none;">
+                        <div style="margin-top: 20px;">
+                            <h2 class="section-header">📝 Consolidated Journal Entries</h2>
+                            <div class="scrollable">
+                                <table id="journalTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Account Code</th>
+                                            <th>Account Name</th>
+                                            <th>BS/PL</th>
+                                            <th>Opening Balance</th>
+                                            <th>Previous Period</th>
+                                            <th>Result Period</th>
+                                            <th>Incremental</th>
+                                            <th>IFRS Adjustment</th>
+                                            <th>US-GAAP</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="journalBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reports Tab -->
+                    <div id="reportsTab" class="tab-content" style="display: none;">
+                        <div style="margin-top: 20px;">
+                            <h2 class="section-header">📊 Reports</h2>
+                            <div style="padding: 20px; background: white; border-radius: 6px; border: 1px solid #e0e0e0;">
+                                <p style="color: #666;">Additional consolidated reports and analytics will be available here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="errorMessage" class="error" style="display: none;"></div>
+                <div id="loading" class="loading" style="display: none;">⏳ Processing consolidated reports...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/consolidate.js') }}"></script>
+    <script>
+        async function logout() {
+            try {
+                const response = await fetch('/api/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                const data = await response.json();
+                if (data.success) {
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                window.location.href = 'login.html';
+            }
+        }
+    </script>
+</body>
+</html>
