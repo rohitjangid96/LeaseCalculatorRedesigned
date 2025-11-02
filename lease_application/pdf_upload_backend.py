@@ -173,7 +173,7 @@ def extract_lease_pdf():
                     logger.info(f"✅ AI extraction successful: {field_count} fields extracted in {ai_extract_time:.2f}s")
                     
                     # Log key fields for debugging
-                    key_fields = ['description', 'lease_start_date', 'end_date', 'rental_1', 'currency', 'asset_class']
+                    key_fields = ['description', 'lease_start_date', 'end_date', 'rental_schedule', 'currency', 'asset_class']
                     for field in key_fields:
                         if field in extracted_fields and extracted_fields[field]:
                             logger.debug(f"   ✅ {field}: {extracted_fields[field]}")

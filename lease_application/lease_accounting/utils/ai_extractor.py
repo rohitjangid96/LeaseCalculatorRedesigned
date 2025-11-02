@@ -273,8 +273,7 @@ Extract the following lease fields from the document:
 - tenure: lease term in months (integer)
 - frequency_months: payment frequency in months (integer, default 1)
 - day_of_month: payment day of month (string, default '1')
-- rental_1: first rental amount (number)
-- rental_2: second rental amount (number, if available)
+- rental_schedule: array of rental schedule entries with start_date, end_date, amount, rental_count
 - currency: currency code like USD, INR
 - borrowing_rate: interest rate as percentage (number)
 - compound_months: compounding frequency in months (integer, default 12)
@@ -315,7 +314,7 @@ def _get_extraction_response_schema() -> dict:
                     "properties": {
                         "field_name": {
                             "type": "string",
-                            "description": "The name of the data field (e.g., 'description', 'lease_start_date', 'rental_1')."
+                            "description": "The name of the data field (e.g., 'description', 'lease_start_date', 'rental_schedule')."
                         },
                         "extracted_value": {
                             "type": "string",
@@ -541,8 +540,7 @@ def _create_extraction_prompt(text: str) -> str:
   "tenure": "lease term in months (integer or null)",
   "frequency_months": "payment frequency in months (integer, default 1)",
   "day_of_month": "payment day of month (string, default '1')",
-  "rental_1": "first rental amount (number or null)",
-  "rental_2": "second rental amount (number or null)",
+  "rental_schedule": "array of rental schedule entries with start_date, end_date, amount, rental_count (array or null)",
   "currency": "currency code like USD, INR (string or null)",
   "borrowing_rate": "interest rate as percentage (number or null)",
   "compound_months": "compounding frequency in months (integer, default 12)",
@@ -619,7 +617,7 @@ def _clean_extracted_data(data: Dict) -> Dict:
     
     # Number fields
     number_fields = [
-        'tenure', 'frequency_months', 'rental_1', 'rental_2', 'borrowing_rate',
+        'tenure', 'frequency_months', 'borrowing_rate',
         'compound_months', 'security_deposit', 'esc_freq_months', 'escalation_percent',
         'lease_incentive', 'initial_direct_expenditure'
     ]

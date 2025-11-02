@@ -281,7 +281,15 @@ class DisclosuresGenerator:
         else:
             short_term = [ld for ld in lease_data_list if ld.short_term_lease_ifrs == "Yes"]
         
-        total_rent = sum((ld.rental_1 or 0.0) * 12 for ld in short_term)  # Approximate annual
+        # Calculate annual rent from rental_schedule
+        total_rent = 0.0
+        for ld in short_term:
+            if ld.rental_schedule and isinstance(ld.rental_schedule, list):
+                # Sum all rental amounts from rental_schedule entries
+                annual_rent = sum(float(entry.get('amount', 0.0)) * int(entry.get('rental_count', 0)) 
+                                 for entry in ld.rental_schedule 
+                                 if isinstance(entry, dict))
+                total_rent += annual_rent
         
         return {
             'count': len(short_term),
@@ -290,7 +298,9 @@ class DisclosuresGenerator:
                 {
                     'lease_id': ld.auto_id,
                     'description': ld.description,
-                    'rental': ld.rental_1 or 0.0
+                    'rental': sum(float(entry.get('amount', 0.0)) * int(entry.get('rental_count', 0))
+                               for entry in (ld.rental_schedule or [])
+                               if isinstance(entry, dict)) if ld.rental_schedule else 0.0
                 }
                 for ld in short_term
             ]

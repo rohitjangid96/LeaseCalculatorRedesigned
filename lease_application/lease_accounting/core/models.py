@@ -36,9 +36,7 @@ class LeaseData:
     
     # Payments
     manual_adj: str = "No"
-    rental_1: Optional[float] = None
-    rental_2: Optional[float] = None
-    # ... rental_3 through rental_20
+    payment_type: str = "advance"  # "advance" or "arrear" - determines payment period direction
     rental_dates: List[Optional[date]] = field(default_factory=list)
     
     # Rental Schedule from form (use this instead of recalculating if provided)
