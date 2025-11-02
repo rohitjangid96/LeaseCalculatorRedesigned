@@ -193,14 +193,16 @@ function mapLeaseToCalculation(lease) {
         day_of_month: lease.pay_day_of_month || lease.day_of_month || '1',
         accrual_day: lease.rent_accrual_day || lease.accrual_day || 1,
         manual_adj: lease.manual_adj || 'No',
-        payment_type: lease.payment_type || 'advance',  // "advance" or "arrear"
-        // Rental Schedule - always required (source of truth for rentals)
+        // CRITICAL: Handle null/undefined but preserve 0 if explicitly set
+        rental_1: (lease.rental_amount !== null && lease.rental_amount !== undefined) ? (lease.rental_amount || 0) : (lease.rental_1 || 0),
+        rental_2: (lease.rental_2 !== null && lease.rental_2 !== undefined) ? (lease.rental_2 || 0) : 0,
+        // Rental Schedule - always include if provided (source of truth for rentals)
         rental_schedule: lease.rental_schedule || null,
         escalation_start_date: ensureDate(lease.escalation_start_date, null),
         escalation_percent: lease.escalation_percentage || lease.escalation_percent || 0,
         esc_freq_months: (lease.escalation_frequency || lease.esc_freq_months) ? (lease.escalation_frequency || lease.esc_freq_months) : null,
         index_rate_table: lease.index_rate_table || '',
-        borrowing_rate: lease.ibr || lease.borrowing_rate || null,  // Don't default to 8 - should be in DB
+        borrowing_rate: lease.ibr || lease.borrowing_rate || 8,
         compound_months: lease.compound_months || 12,
         fv_of_rou: lease.fair_value || lease.fv_of_rou || 0,
         currency: lease.currency || 'USD',
@@ -282,6 +284,7 @@ async function calculateLease() {
         // Map lease to calculation format
         const calculationData = mapLeaseToCalculation(lease);
         console.log('📋 Mapped calculation data:', calculationData);
+        console.log('📋 rental_1 after mapping:', calculationData.rental_1);
         calculationData.from_date = fromDate;
         calculationData.to_date = toDate;
 

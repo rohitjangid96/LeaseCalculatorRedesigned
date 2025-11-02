@@ -130,19 +130,10 @@ class LeaseProcessor:
         
         # Calculate period activity (depreciation, interest, rent paid)
         # Pass date_modified if available in lease_data
-        # CRITICAL: VBA uses opendate = from_date - 1, so we need to pass start_date - 1 day
-        # VBA Line 438: If cell.Value > opendate And cell.Value <= closedate
-        from datetime import timedelta
-        opendate = self.filters.start_date - timedelta(days=1) if self.filters.start_date else None
         date_modified = getattr(lease_data, 'date_modified', None)
-        # Calculate opendate (from_date - 1 day) for period activity calculation
-        # CRITICAL: Must pass opendate, not from_date, to match VBA logic
-        period_start_date = opendate if opendate else self.filters.start_date
-        logger.info(f"📊 Period activity: opendate={opendate}, period_start_date={period_start_date}, end_date={self.filters.end_date}, schedule_rows={len(schedule)}")
         period_activity = self.calculate_period_activity(
-            schedule, period_start_date, self.filters.end_date, date_modified
+            schedule, self.filters.start_date, self.filters.end_date, date_modified
         )
-        logger.info(f"📊 Period activity result: rent_paid={period_activity.get('rent_paid', 0):,.2f}, depreciation={period_activity.get('depreciation', 0):,.2f}, interest={period_activity.get('interest', 0):,.2f}")
         
         # Calculate closing balances (VBA: baldate = D3)
         closing_liability, closing_rou, closing_aro, closing_security = self.get_closing_balances(
@@ -715,7 +706,6 @@ class LeaseProcessor:
           - Lines 462-474: Termination gain/loss calculation
         Returns: dict with 'depreciation', 'interest', 'rent_paid', 'aro_interest', 'security_change'
         """
-        logger.info(f"📊 calculate_period_activity called: start_date={start_date}, end_date={end_date}, schedule_rows={len(schedule)}")
         depreciation = 0.0
         interest = 0.0
         rent_paid = 0.0
@@ -724,43 +714,26 @@ class LeaseProcessor:
         change_rou = 0.0
         
         prev_security_pv = 0.0
-        rows_included = 0
-        rows_skipped_opening = 0
-        rows_skipped_date = 0
-        rows_skipped_none = 0
         
         for i, row in enumerate(schedule):
             # Skip opening row
             if row.is_opening:
-                rows_skipped_opening += 1
                 # Track opening security deposit for delta calculation
                 prev_security_pv = row.security_deposit_pv or 0.0
                 continue
                 
             # Get date from row
-            # CRITICAL: PaymentScheduleRow uses 'date' attribute, not 'payment_date'
-            # The 'payment_date' property returns 'date', but we should use 'date' directly
-            row_date = getattr(row, 'date', None)
-            if row_date is None:
-                row_date = getattr(row, 'payment_date', None)
+            row_date = row.payment_date
             if hasattr(row_date, 'date'):
                 row_date = row_date.date()
-            if not isinstance(row_date, date):
-                continue  # Skip if we can't get a valid date
+            elif not isinstance(row_date, date):
+                row_date = getattr(row, 'date', row_date)
             
             # VBA Line 438: cell.Value > opendate And cell.Value <= closedate
             # start_date is already opendate (from_date - 1), end_date is closedate (to_date)
             # CRITICAL: VBA uses > (greater than) not >=, so opendate is EXCLUDED
             # Python condition must match: row_date > start_date AND row_date <= end_date
-            # CRITICAL: Check that start_date and end_date are not None
-            if not start_date or not end_date:
-                rows_skipped_none += 1
-                if rows_skipped_none <= 3:
-                    logger.warning(f"⚠️ calculate_period_activity: start_date={start_date}, end_date={end_date} - skipping row {row_date}")
-                continue
-                
             if start_date < row_date <= end_date:  # Same as: row_date > start_date AND row_date <= end_date
-                rows_included += 1
                 # VBA Line 432-437: If openinsert_Flag = 1, subtract values
                 # (handled separately in get_opening_balances)
                 
@@ -770,18 +743,13 @@ class LeaseProcessor:
                     Not_modified = 0
                 
                 # VBA Line 440-444: Accumulate period activity
-                row_depr = abs(row.depreciation or 0.0)
-                row_rent = (row.rental_amount or 0.0) * Not_modified
-                depreciation += row_depr
+                depreciation += abs(row.depreciation or 0.0)
                 interest += abs(row.interest or 0.0)
-                rent_paid += row_rent  # CRITICAL: Exclude date_modified
+                rent_paid += (row.rental_amount or 0.0) * Not_modified  # CRITICAL: Exclude date_modified
                 change_rou += row.change_in_rou or 0.0
                 
                 if row.aro_interest:
                     aro_interest += row.aro_interest
-                
-                if rows_included <= 5:  # Log first 5 rows for debugging
-                    logger.debug(f"📊 Row {rows_included}: date={row_date}, rent={row_rent:.2f}, depr={row_depr:.2f}")
                 
                 # VBA Line 445: Security deposit change (delta calculation)
                 if i > 0:  # cell.Row > 9
@@ -792,12 +760,6 @@ class LeaseProcessor:
                     # (Complex formula parsing - simplified here)
                 
                 prev_security_pv = row.security_deposit_pv or 0.0
-            else:
-                rows_skipped_date += 1
-                if rows_skipped_date <= 3:
-                    logger.debug(f"📊 Row {i} excluded: date={row_date}, condition={start_date} < {row_date} <= {end_date} = {start_date < row_date <= end_date}")
-        
-        logger.info(f"📊 calculate_period_activity summary: rows_included={rows_included}, rows_skipped_opening={rows_skipped_opening}, rows_skipped_date={rows_skipped_date}, rows_skipped_none={rows_skipped_none}, rent_paid={rent_paid:.2f}, depreciation={depreciation:.2f}")
         
         return {
             'depreciation': depreciation,

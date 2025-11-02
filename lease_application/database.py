@@ -247,10 +247,6 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
     """Save or update a lease"""
     lease_id = lease_data.get('lease_id')
     
-    # CRITICAL: Log incoming data for debugging
-    logger.info(f"💾 Saving lease data - IBR field: ibr={lease_data.get('ibr')}, borrowing_rate={lease_data.get('borrowing_rate')}")
-    logger.debug(f"💾 All lease_data keys: {list(lease_data.keys())}")
-    
     # Map form field names to database column names
     field_mapping = {
         'agreement_title': 'agreement_title',
@@ -268,10 +264,8 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
         'asset_title': 'asset_title',
         'lease_end_date': 'lease_end_date',
         'status': 'status',
-        # CRITICAL: Database column is 'borrowing_rate', form field is 'ibr'
-        # Map form field 'ibr' to database column 'borrowing_rate'
-        'ibr': 'borrowing_rate',  # Form field 'ibr' maps to database column 'borrowing_rate'
-        'borrowing_rate': 'borrowing_rate',  # Alternative field name also maps to 'borrowing_rate' column
+        'ibr': 'ibr',  # Form field 'ibr' maps to database column 'ibr'
+        'borrowing_rate': 'ibr',  # Alternative field name also maps to 'ibr' column
         'asset_id_code': 'asset_id_code',
         'asset_class': 'asset_class',
         'asset_location': 'asset_location',
@@ -346,10 +340,6 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
         # Use mapped name if exists, otherwise use original
         db_key = field_mapping.get(key, key)
         mapped_data[db_key] = value
-        
-        # CRITICAL: Log IBR field specifically
-        if key in ['ibr', 'borrowing_rate']:
-            logger.info(f"💾 Mapping IBR field: key='{key}' → db_key='{db_key}' (DB column), value={value} (type: {type(value)})")
     
     # Also map legacy fields - handle both directions
     # Map agreement_title to lease_name if lease_name exists in database
@@ -412,33 +402,13 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
         if field in mapped_data and mapped_data[field] != '' and mapped_data[field] is not None:
             try:
                 mapped_data[field] = float(mapped_data[field]) if '.' in str(mapped_data[field]) else int(mapped_data[field])
-                # CRITICAL: Log IBR conversion
-                if field in ['ibr', 'borrowing_rate']:
-                    logger.info(f"💾 Converted IBR field '{field}': {mapped_data[field]} (type: {type(mapped_data[field])})")
             except (ValueError, TypeError):
                 mapped_data[field] = None
-                if field in ['ibr', 'borrowing_rate']:
-                    logger.warning(f"⚠️ Failed to convert IBR field '{field}', set to None")
-    
-    # CRITICAL: Ensure borrowing_rate is in mapped_data if either ibr or borrowing_rate was provided
-    # Database column is 'borrowing_rate', so ensure it's set
-    if 'borrowing_rate' not in mapped_data and 'ibr' in lease_data:
-        # If form sent 'ibr' but not 'borrowing_rate', copy ibr value to borrowing_rate
-        mapped_data['borrowing_rate'] = lease_data.get('ibr')
-        logger.info(f"💾 Copied ibr to borrowing_rate for DB: {mapped_data['borrowing_rate']}")
-    
-    # Log final IBR value before saving (note: DB column is borrowing_rate)
-    logger.info(f"💾 Final mapped_data IBR value: borrowing_rate={mapped_data.get('borrowing_rate')}, ibr in lease_data={lease_data.get('ibr')}")
     
     mapped_data['user_id'] = user_id
     
     # Use mapped_data instead of lease_data from here
     lease_data_to_save = mapped_data
-    
-    # CRITICAL: Log IBR value before database operation
-    # Note: DB column is 'borrowing_rate', not 'ibr'
-    logger.info(f"💾 About to save to DB - IBR in mapped_data: borrowing_rate={lease_data_to_save.get('borrowing_rate')}")
-    logger.debug(f"💾 All keys being saved: {list(lease_data_to_save.keys())}")
     
     if lease_id:
         # Update existing lease
@@ -545,34 +515,17 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
 
 def get_lease(lease_id: int, user_id: int) -> Optional[Dict]:
     """Get lease by ID (only if owned by user)"""
-    logger.info(f"📖 Getting lease {lease_id} for user {user_id}")
     with get_db_connection() as conn:
         row = conn.execute(
             "SELECT * FROM leases WHERE lease_id = ? AND user_id = ?",
             (lease_id, user_id)
             ).fetchone()
         if not row:
-            logger.warning(f"⚠️ Lease {lease_id} not found for user {user_id}")
             return None
         
         # Convert sqlite3.Row to dict properly
         # Use column names as keys to ensure correct field names
         lease_dict = {key: row[key] for key in row.keys()}
-        
-        # CRITICAL: Log IBR field from database
-        # Database column is 'borrowing_rate', map it to 'ibr' for form compatibility
-        logger.info(f"📖 Retrieved IBR from database: borrowing_rate={lease_dict.get('borrowing_rate')}")
-        
-        # CRITICAL: Map borrowing_rate to ibr for form auto-population
-        # The form field is 'ibr', but database column is 'borrowing_rate'
-        if 'borrowing_rate' in lease_dict:
-            lease_dict['ibr'] = lease_dict.get('borrowing_rate')
-            logger.info(f"📖 Mapped borrowing_rate to ibr for form: {lease_dict['ibr']}")
-        else:
-            logger.warning(f"⚠️ borrowing_rate column not found in database row")
-        
-        logger.debug(f"📖 All lease_dict keys: {list(lease_dict.keys())}")
-        logger.info(f"📖 Final lease_dict IBR: ibr={lease_dict.get('ibr')}, borrowing_rate={lease_dict.get('borrowing_rate')}")
         
         # Parse JSON fields back to objects for form auto-population
         import json

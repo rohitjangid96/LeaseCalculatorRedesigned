@@ -543,6 +543,7 @@ function mapExtractedDataToForm(extractedData) {
         'tenure': null, // Calculated field
         'frequency_months': 'rent_frequency',
         'day_of_month': 'pay_day_of_month',
+        'rental_1': 'rental_amount',
         'currency': 'currency',
         'borrowing_rate': 'ibr',
         'compound_months': 'compound_months',
@@ -715,47 +716,20 @@ async function loadLeaseData(leaseId) {
             // Debug: log lease data
             console.log('📋 Loading lease data:', lease);
             console.log('🔍 rental_schedule in response:', lease.rental_schedule, 'Type:', typeof lease.rental_schedule);
-            console.log('🔑 IBR value in lease data:', lease.ibr, 'borrowing_rate:', lease.borrowing_rate);
-            
-            // CRITICAL: Handle IBR field FIRST before other fields
-            // Database column is 'borrowing_rate', but API maps it to 'ibr' for form compatibility
-            // Form field is 'ibr', so check both ibr and borrowing_rate
-            const ibrField = form.querySelector('[name="ibr"]');
-            if (ibrField) {
-                // Check for ibr first (API maps borrowing_rate to ibr), then borrowing_rate as fallback
-                const ibrValue = lease.ibr !== undefined ? lease.ibr : (lease.borrowing_rate !== undefined ? lease.borrowing_rate : null);
-                console.log(`🔑 IBR value check: lease.ibr=${lease.ibr}, lease.borrowing_rate=${lease.borrowing_rate}, final=${ibrValue}`);
-                if (ibrValue !== null && ibrValue !== undefined && ibrValue !== '') {
-                    const numValue = parseFloat(ibrValue);
-                    if (!isNaN(numValue)) {
-                        ibrField.value = numValue;
-                        console.log(`✅ Auto-populated IBR field with value: ${numValue}`);
-                    } else {
-                        console.warn(`⚠️ IBR value is not a valid number: ${ibrValue}`);
-                    }
-                } else {
-                    console.warn(`⚠️ IBR value is null/undefined/empty: ${ibrValue}`);
-                }
-            } else {
-                console.error('❌ IBR field not found in form!');
-            }
             
             // Map database field names to form field names
-            // Database column is 'ibr', form field is also 'ibr'
-            // But some code may use 'borrowing_rate' as alternative name
+            // Database uses 'borrowing_rate' but form field is 'ibr'
             const fieldMapping = {
-                'ibr': 'ibr',  // Database column 'ibr' maps to form field 'ibr'
-                'borrowing_rate': 'ibr',  // Alternative field name 'borrowing_rate' also maps to 'ibr'
+                'borrowing_rate': 'ibr',  // Database column 'borrowing_rate' maps to form field 'ibr'
+                'ibr': 'ibr',  // Also handle if database has 'ibr' column
                 // All other fields match database column names exactly
             };
             
             // Populate all form fields
             for (const [key, value] of Object.entries(lease)) {
                 // Skip internal fields and JSON fields (handled separately)
-                // Also skip ibr and borrowing_rate as we handle them separately above
                 if (key === 'lease_id' || key === 'user_id' || key === 'created_at' || key === 'updated_at' 
-                    || key === 'rental_schedule' || key === 'sublease_payment_details'
-                    || key === 'ibr' || key === 'borrowing_rate') {
+                    || key === 'rental_schedule' || key === 'sublease_payment_details') {
                     continue;
                 }
                 
@@ -820,24 +794,14 @@ async function loadLeaseData(leaseId) {
                             }
                         } else if (field.type === 'number') {
                             // Handle numeric fields
-                            // CRITICAL: For 'ibr' field, ensure we populate even if value is 0 or empty
-                            // Don't clear the field if it has a valid numeric value from DB
                             if (value !== null && value !== undefined && value !== '') {
                                 const numValue = parseFloat(value);
                                 if (!isNaN(numValue)) {
                                     field.value = numValue;
                                 } else {
-                                    // If parseFloat fails, try to use the value as-is if it's numeric
                                     field.value = value || '';
                                 }
-                            } else if (field.name === 'ibr') {
-                                // For IBR field, if DB has null/empty, don't clear - leave it empty (user should fill)
-                                // But if field already has a value, don't overwrite it
-                                if (!field.value || field.value === '') {
-                                    field.value = '';
-                                }
                             } else {
-                                // For other numeric fields, clear if no value
                                 field.value = '';
                             }
                         } else if (field.tagName === 'SELECT') {
@@ -876,11 +840,11 @@ async function loadLeaseData(leaseId) {
                                             'first_payment_date', 'rental_amount', 'escalation_percentage'];
                     if (importantFields.includes(key) || importantFields.includes(formFieldName)) {
                         console.warn(`⚠️ Field '${key}' → '${formFieldName}' (value: ${value}) not found in form`);
-                        // Special handling for ibr/borrowing_rate -> ibr mapping
-                        if ((key === 'ibr' || key === 'borrowing_rate') && value !== null && value !== undefined && value !== '') {
+                        // Special handling for borrowing_rate -> ibr mapping
+                        if (key === 'borrowing_rate' && value !== null && value !== undefined && value !== '') {
                             const ibrField = form.querySelector('[name="ibr"]');
                             if (ibrField) {
-                                console.log(`✅ Found ibr field, populating with ${key} value: ${value}`);
+                                console.log(`✅ Found ibr field, populating with borrowing_rate value: ${value}`);
                                 ibrField.value = parseFloat(value);
                             }
                         }

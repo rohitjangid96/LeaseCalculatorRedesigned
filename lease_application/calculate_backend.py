@@ -44,14 +44,17 @@ def calculate_lease():
         data = request.json
         
         logger.info(f"📥 Received calculation request:")
+        logger.info(f"   rental_amount: {data.get('rental_amount', 'NOT PROVIDED')}")
         logger.info(f"   lease_start: {data.get('lease_start_date')}, end: {data.get('lease_end_date')}")
         logger.info(f"   from_date: {data.get('from_date')}, to_date: {data.get('to_date')}")
-        logger.info(f"   rental_schedule entries: {len(data.get('rental_schedule', []))}")
         
         # Map form fields to lease data structure
-        # rental_schedule is always present and is the source of truth for rental amounts
+        rental_amount = float(data.get('rental_amount', 0) or data.get('rental_1', 0) or 0)
         lease_start = _parse_date(data.get('lease_start_date'))
         end_date = _parse_date(data.get('lease_end_date') or data.get('end_date'))
+        
+        if rental_amount == 0:
+            logger.warning(f"⚠️  rental_amount is 0 - no payments will be generated!")
         
         if lease_start and end_date and lease_start >= end_date:
             logger.warning(f"⚠️  Lease end date ({end_date}) must be AFTER start date ({lease_start})!")
@@ -71,11 +74,8 @@ def calculate_lease():
             except (ValueError, TypeError):
                 raise ValueError(f"Invalid borrowing_rate value in 'borrowing_rate' field: {br_val}. Must be a valid number.")
         
-        # Don't raise error if borrowing_rate is None - let LeaseData handle it with proper defaults
-        # The form should always provide ibr, but calculation should handle missing values gracefully
         if borrowing_rate is None:
-            logger.warning("⚠️  borrowing_rate not provided in payload. Will use default from LeaseData if available.")
-            borrowing_rate = None  # Let LeaseData model handle default
+            raise ValueError("borrowing_rate is required. Please provide either 'ibr' or 'borrowing_rate' field in the payload.")
         
         # CRITICAL: Extract frequency_months BEFORE creating LeaseData
         # Check frequency_months first, then rent_frequency, then default to 1
@@ -124,9 +124,10 @@ def calculate_lease():
             
             # Payments
             manual_adj="Yes" if str(data.get('manual_adj', '')).lower() in ['yes', 'on', 'true', '1'] else "No",
-            payment_type=data.get('payment_type', 'advance').lower() or 'advance',  # "advance" or "arrear"
+            rental_1=rental_amount,
+            rental_2=float(data.get('rental_2', 0) or 0),
             
-            # Rental Schedule from form - always required (source of truth for rentals)
+            # Rental Schedule from form - always include if provided (source of truth for rentals)
             rental_schedule=data.get('rental_schedule'),  # List of dicts with start_date, end_date, amount, rental_count
             
             # Escalation - No defaults, must be explicitly provided
@@ -335,9 +336,10 @@ def _map_lease_to_leasedata(lease_dict: dict) -> LeaseData:
         
         # Payments
         manual_adj="Yes" if str(lease_dict.get('manual_adj', '')).lower() in ['yes', 'on', 'true', '1'] else "No",
-        payment_type=lease_dict.get('payment_type', 'advance').lower() or 'advance',  # "advance" or "arrear"
+        rental_1=float(lease_dict.get('rental_amount', 0) or 0),
+        rental_2=float(lease_dict.get('rental_2', 0) or 0),
         
-        # Rental Schedule from database - always required (source of truth for rentals)
+        # Rental Schedule from database (use this instead of recalculating if provided)
         rental_schedule=rental_schedule,
         
         # Escalation - No defaults, must be explicitly provided

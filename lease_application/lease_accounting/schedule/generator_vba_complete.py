@@ -45,7 +45,7 @@ def _generate_schedule_from_rental_schedule(lease_data: LeaseData) -> List[Payme
     # Track the last payment date from previous entries to continue payment pattern
     # CRITICAL: For subsequent rental entries, payments should continue from the previous entry's pattern,
     # not restart from the entry's start_date or use first_payment_date
-    last_payment_date = None  # Will be updated after each entry is processed - used to continue payments after all entries
+    last_payment_date = None  # Will be updated after each entry is processed
     
     # Process each rental schedule entry
     for entry_idx, rental_entry in enumerate(lease_data.rental_schedule):
@@ -318,18 +318,50 @@ def _generate_schedule_from_rental_schedule(lease_data: LeaseData) -> List[Payme
         # CRITICAL: For each payment date, determine which rental entry it belongs to based on date
         # Use the rental amount from the entry whose date range contains the payment date
         for payment_date in payment_dates:
-            # Calculate proportionate rental amount for the payment period
-            # This handles cases where rental schedule changes mid-payment period
-            payment_rental_amount = _get_proportionate_rental_for_payment_period(
-                lease_data, payment_date, frequency_months
-            )
+            # Determine which rental entry this payment date belongs to
+            # Check if payment_date falls within this entry's date range
+            payment_rental_amount = amount  # Default to current entry's amount
             
-            if payment_rental_amount == 0.0:
-                # Fallback: if proportionate calculation fails, use simple lookup
-                payment_rental_amount = _get_rental_from_schedule(lease_data, payment_date)
-                logger.warning(f"⚠️  Proportionate calculation returned 0 for {payment_date}, using simple lookup: {payment_rental_amount}")
-            
-            logger.debug(f"📅 Payment date {payment_date}: proportionate rental = {payment_rental_amount:.2f}")
+            if payment_date < start_date or payment_date > end_date:
+                # Payment date is outside this entry's range - find the correct entry
+                # This can happen when continuing payment pattern beyond entry end_date
+                # Look through all rental entries to find the one that contains this date
+                found_entry = False
+                for check_entry in lease_data.rental_schedule:
+                    if not isinstance(check_entry, dict):
+                        continue
+                    check_start = check_entry.get('start_date')
+                    check_end = check_entry.get('end_date')
+                    check_amount = check_entry.get('amount', 0.0)
+                    
+                    if check_start and check_end:
+                        try:
+                            if isinstance(check_start, str):
+                                check_start_date = datetime.strptime(check_start, '%Y-%m-%d').date()
+                            else:
+                                check_start_date = check_start
+                                
+                            if isinstance(check_end, str):
+                                check_end_date = datetime.strptime(check_end, '%Y-%m-%d').date()
+                            else:
+                                check_end_date = check_end
+                            
+                            # Check if payment_date falls within this entry's range
+                            if check_start_date <= payment_date <= check_end_date:
+                                payment_rental_amount = check_amount
+                                found_entry = True
+                                logger.debug(f"📅 Payment date {payment_date} belongs to entry with range {check_start_date} to {check_end_date}, amount: {payment_rental_amount}")
+                                break
+                        except (ValueError, TypeError):
+                            continue
+                
+                if not found_entry:
+                    # No entry found - use current entry's amount as fallback
+                    logger.warning(f"📅 Payment date {payment_date} outside all entry ranges, using current entry amount: {payment_rental_amount}")
+            else:
+                # Payment date is within this entry's range - use this entry's amount
+                payment_rental_amount = amount
+                logger.debug(f"📅 Payment date {payment_date} is within entry {entry_idx} range ({start_date} to {end_date}), amount: {payment_rental_amount}")
             
             # Check if row already exists for this date
             if any(row.date == payment_date for row in schedule):
@@ -337,17 +369,17 @@ def _generate_schedule_from_rental_schedule(lease_data: LeaseData) -> List[Payme
                 for row in schedule:
                     if row.date == payment_date:
                         row.rental_amount = payment_rental_amount
-                        logger.debug(f"📅 Updated existing row for {payment_date} with proportionate amount: {payment_rental_amount:.2f}")
+                        logger.debug(f"📅 Updated existing row for {payment_date} with amount: {payment_rental_amount}")
                         break
             else:
-                # Create new row - use len(schedule) as row_index to ensure only first row is is_opening
+                # Create new row
                 aro_for_date = _get_aro_for_date(lease_data, payment_date)
                 row = _create_schedule_row(
                     lease_data, payment_date, payment_rental_amount, aro_for_date,
-                    lease_data.lease_start_date, lease_data.end_date, len(schedule), schedule
+                    lease_data.lease_start_date, lease_data.end_date, 0, schedule
                 )
                 schedule.append(row)
-                logger.debug(f"📅 Created new row for {payment_date} with proportionate amount: {payment_rental_amount:.2f}")
+                logger.debug(f"📅 Created new row for {payment_date} with amount: {payment_rental_amount}")
         
         # Update last_payment_date to the last payment date in payment_dates (if any were generated)
         # CRITICAL: This ensures subsequent entries continue the payment pattern
@@ -359,165 +391,7 @@ def _generate_schedule_from_rental_schedule(lease_data: LeaseData) -> List[Payme
             # This shouldn't happen, but provides a fallback
             logger.warning(f"📅 Entry {entry_idx}: payment_dates is empty but count={count}")
     
-    # CRITICAL: Continue generating payments after all rental schedule entries are processed
-    # This ensures payments are generated until lease_end_date even if rental entries end earlier
-    if lease_data.end_date and last_payment_date:
-        lease_end_date = lease_data.end_date
-        frequency_months = lease_data.frequency_months or 1
-        day_of_month = lease_data.day_of_month
-        
-        # Continue generating payments from last_payment_date until lease_end_date
-        current_payment_date = edate(last_payment_date, frequency_months)
-        
-        # Apply day_of_month to current_payment_date
-        if isinstance(day_of_month, int):
-            try:
-                current_payment_date = current_payment_date.replace(day=min(day_of_month, eomonth(current_payment_date, 0).day))
-            except (ValueError, AttributeError):
-                current_payment_date = eomonth(current_payment_date, 0)
-        elif day_of_month == "Last":
-            current_payment_date = eomonth(current_payment_date, 0)
-        
-        # Continue generating payments while current_payment_date <= lease_end_date
-        while current_payment_date <= lease_end_date:
-            # Calculate proportionate rental amount for this payment period
-            payment_rental_amount = _get_proportionate_rental_for_payment_period(
-                lease_data, current_payment_date, frequency_months
-            )
-            
-            if payment_rental_amount == 0.0:
-                # Fallback: use simple lookup if proportionate calculation fails
-                payment_rental_amount = _get_rental_from_schedule(lease_data, current_payment_date)
-                logger.warning(f"⚠️  Proportionate calculation returned 0 for {current_payment_date}, using simple lookup: {payment_rental_amount}")
-            
-            # Check if row already exists for this date
-            if any(row.date == current_payment_date for row in schedule):
-                # Update existing row with rental amount
-                for row in schedule:
-                    if row.date == current_payment_date:
-                        row.rental_amount = payment_rental_amount
-                        logger.debug(f"📅 Updated existing row for {current_payment_date} with proportionate amount: {payment_rental_amount:.2f}")
-                        break
-            else:
-                # Create new row
-                aro_for_date = _get_aro_for_date(lease_data, current_payment_date)
-                row = _create_schedule_row(
-                    lease_data, current_payment_date, payment_rental_amount, aro_for_date,
-                    lease_data.lease_start_date, lease_data.end_date, len(schedule), schedule
-                )
-                schedule.append(row)
-                logger.debug(f"📅 Created new row for {current_payment_date} with proportionate amount: {payment_rental_amount:.2f}")
-            
-            # Move to next payment date
-            next_payment_estimate = edate(current_payment_date, frequency_months)
-            
-            # Apply day_of_month to estimate
-            if isinstance(day_of_month, int):
-                try:
-                    next_payment_estimate = next_payment_estimate.replace(day=min(day_of_month, eomonth(next_payment_estimate, 0).day))
-                except (ValueError, AttributeError):
-                    pass
-            
-            # Stop if next payment would exceed lease_end_date
-            if next_payment_estimate > lease_end_date:
-                break
-            
-            current_payment_date = next_payment_estimate
-    
-    # CRITICAL: Ensure there's a row at lease_end_date for proper amortization calculation
-    # This is important even if there's no payment on that date
-    if lease_data.end_date:
-        lease_end_date = lease_data.end_date
-        if not any(row.date == lease_end_date for row in schedule):
-            # Add a final row at lease_end_date (no payment, just for closing balances)
-            aro_for_date = _get_aro_for_date(lease_data, lease_end_date)
-            end_row = _create_schedule_row(
-                lease_data, lease_end_date, 0.0, aro_for_date,
-                lease_data.lease_start_date, lease_data.end_date, len(schedule), schedule
-            )
-            schedule.append(end_row)
-            logger.debug(f"📅 Added final row at lease_end_date: {lease_end_date}")
-    
     # Sort schedule by date
-    schedule.sort(key=lambda x: x.date)
-    
-    # CRITICAL: Add month-end rows for interest accrual (VBA Line 187-206)
-    # Expected schedule includes month-end dates (Jan 31, Feb 29, Mar 31, etc.) even when there's no payment
-    # These are for interest accrual and proper depreciation calculation
-    month_end_schedule = []
-    current_date = lease_data.lease_start_date
-    end_date = lease_data.end_date
-    
-    # Generate month-end dates from lease_start_date to end_date
-    while current_date <= end_date:
-        # Get last day of current month
-        month_end = eomonth(current_date, 0)
-        
-        # Only add if it's different from current_date and <= end_date
-        if month_end != current_date and month_end <= end_date:
-            # Check if this date already exists in schedule
-            if not any(row.date == month_end for row in schedule):
-                # Create month-end row (no payment, just for interest accrual)
-                # Use len(schedule) as row_index to ensure only first row is is_opening
-                aro_for_date = _get_aro_for_date(lease_data, month_end)
-                month_end_row = _create_schedule_row(
-                    lease_data, month_end, 0.0, aro_for_date,
-                    lease_data.lease_start_date, lease_data.end_date, len(schedule), schedule
-                )
-                month_end_schedule.append(month_end_row)
-        
-        # Move to first day of next month
-        if current_date.month == 12:
-            current_date = date(current_date.year + 1, 1, 1)
-        else:
-            current_date = date(current_date.year, current_date.month + 1, 1)
-    
-    # Add month-end rows to schedule
-    schedule.extend(month_end_schedule)
-    
-    # CRITICAL: Add intermediate dates when first_payment_date doesn't match day_of_month
-    # Expected schedule shows dates like Mar 5, 2024 when first payment is Mar 1 but day_of_month is 5
-    # This represents the day_of_month adjustment after the first payment
-    if lease_data.first_payment_date and lease_data.day_of_month:
-        # Parse day_of_month
-        day_of_month_val = lease_data.day_of_month
-        if isinstance(day_of_month_val, str):
-            if day_of_month_val.isdigit():
-                day_of_month_val = int(day_of_month_val)
-            elif day_of_month_val == "Last":
-                day_of_month_val = None  # Skip intermediate date logic for "Last"
-            else:
-                try:
-                    day_of_month_val = int(day_of_month_val)
-                except (ValueError, TypeError):
-                    day_of_month_val = None
-        elif not isinstance(day_of_month_val, int):
-            day_of_month_val = None
-        
-        if day_of_month_val and isinstance(day_of_month_val, int):
-            # Check if first_payment_date day doesn't match day_of_month
-            if lease_data.first_payment_date.day != day_of_month_val:
-                # Create intermediate date: same month/year as first_payment_date, but with day_of_month
-                try:
-                    intermediate_date = lease_data.first_payment_date.replace(day=min(day_of_month_val, eomonth(lease_data.first_payment_date, 0).day))
-                    
-                    # Only add if it's after first_payment_date and before month-end
-                    if intermediate_date > lease_data.first_payment_date and intermediate_date < eomonth(lease_data.first_payment_date, 0):
-                        # Check if this date already exists
-                        if not any(row.date == intermediate_date for row in schedule):
-                            # Create intermediate row (no payment, just for interest accrual)
-                            # Use len(schedule) as row_index to ensure only first row is is_opening
-                            aro_for_date = _get_aro_for_date(lease_data, intermediate_date)
-                            intermediate_row = _create_schedule_row(
-                                lease_data, intermediate_date, 0.0, aro_for_date,
-                                lease_data.lease_start_date, lease_data.end_date, len(schedule), schedule
-                            )
-                            schedule.append(intermediate_row)
-                            logger.debug(f"📅 Added intermediate date {intermediate_date} (day_of_month adjustment after first payment {lease_data.first_payment_date})")
-                except (ValueError, AttributeError):
-                    pass  # Invalid date, skip
-    
-    # Sort again after adding month-end and intermediate rows
     schedule.sort(key=lambda x: x.date)
     
     # Apply basic calculations (PV, interest, liability, ROU, depreciation)
@@ -558,11 +432,15 @@ def generate_complete_schedule(lease_data: LeaseData) -> List[PaymentScheduleRow
     schedule: List[PaymentScheduleRow] = []
     
     # Initialize rental tracking (VBA app_rent, app_rent_date)
-    # Since rental_schedule will always be present, we get rental from schedule
-    # For initial lookup, get rental for first payment date
-    first_payment_date = lease_data.first_payment_date if lease_data.first_payment_date else lease_data.lease_start_date
-    app_rent = _get_rental_from_schedule(lease_data, first_payment_date)
-    app_rent_date = first_payment_date
+    # CRITICAL: Initialize by calling findrent() first (VBA initializes before loop)
+    rent_no = 1  # Start with 1 for first payment (VBA uses 1-based indexing)
+    # For initial lookup, use rent_no=1
+    app_rent, app_rent_date = findrent(lease_data, rent_no)
+    # If no escalation, app_rent_date is end_date, so we use rental_1 for all payments starting from first_payment_date
+    if app_rent_date == lease_data.end_date and (not lease_data.escalation_percent or lease_data.escalation_percent == 0):
+        # No escalation - rental is constant, valid from first payment date
+        app_rent = lease_data.rental_1 or 0.0
+        app_rent_date = lease_data.first_payment_date if lease_data.first_payment_date else lease_data.lease_start_date
     lastmonthpay = 0
     
     # Extract dates
@@ -829,11 +707,8 @@ def findrent(lease_data: LeaseData, app: int) -> Tuple[float, date]:
     
     # VBA Line 889-893: Early exit if no escalation
     # Check if escalation parameters are missing or zero (no escalation applicable)
-    # Since rental_schedule will always be present, get rental from schedule
     if fre == 0 or pre == 0 or Frequency_months == 0 or Escalation_Start is None:
-        # No escalation - get rental from rental_schedule for the escalation start date (or lease start date)
-        payment_date = Escalation_Start if Escalation_Start else lease_data.lease_start_date
-        app_rent = _get_rental_from_schedule(lease_data, payment_date)
+        app_rent = lease_data.rental_1 or 0.0
         app_rent_date = lease_data.end_date or date.today()
         return (app_rent, app_rent_date)
     Lease_start_date = lease_data.lease_start_date
@@ -890,9 +765,7 @@ def findrent(lease_data: LeaseData, app: int) -> Tuple[float, date]:
     while i < 201:
         # VBA Line 929: app_rent_date = EDate(begdate1, fre * (i - k)) - 1
         app_rent_date = edate(begdate1, fre * (i - k)) - timedelta(days=1)
-        # Get base rental from schedule and apply escalation
-        base_rental = _get_rental_from_schedule(lease_data, Escalation_Start) if Escalation_Start else _get_rental_from_schedule(lease_data, lease_data.lease_start_date)
-        app_rent = base_rental * ((1 + pre / 100) ** (i - 1 - k))
+        app_rent = (lease_data.rental_1 or 0.0) * ((1 + pre / 100) ** (i - 1 - k))
         
         if app == i:
             return (app_rent, app_rent_date)
@@ -914,10 +787,8 @@ def findrent(lease_data: LeaseData, app: int) -> Tuple[float, date]:
             if offseOriginal < 0:
                 offse = RPeriod.days + offseOriginal
             
-            # Get base rental from schedule and apply escalation
-            base_rental = _get_rental_from_schedule(lease_data, Escalation_Start) if Escalation_Start else _get_rental_from_schedule(lease_data, lease_data.lease_start_date)
-            app_rent = (base_rental * ((1 + pre / 100) ** (i - k)) * offse / RPeriod.days + 
-                       base_rental * ((1 + pre / 100) ** (i - 1 - k)) * (RPeriod.days - offse) / RPeriod.days)
+            app_rent = ((lease_data.rental_1 or 0.0) * ((1 + pre / 100) ** (i - k)) * offse / RPeriod.days + 
+                       (lease_data.rental_1 or 0.0) * ((1 + pre / 100) ** (i - 1 - k)) * (RPeriod.days - offse) / RPeriod.days)
             i += 1
             i_was_incremented = True
             if app == i:
@@ -968,12 +839,8 @@ def _get_rental_from_schedule(lease_data: LeaseData, payment_date: date) -> floa
     
     Returns the rental amount from the rental_schedule entry whose date range contains the payment_date.
     """
-    # rental_schedule should always be present
     if not lease_data.rental_schedule or not isinstance(lease_data.rental_schedule, list):
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"⚠️  rental_schedule is required but missing for payment_date {payment_date}")
-        return 0.0
+        return lease_data.rental_1 or 0.0
     
     # Find the rental schedule entry whose date range contains payment_date
     # Check entries in order (earlier entries first)
@@ -1006,219 +873,8 @@ def _get_rental_from_schedule(lease_data: LeaseData, payment_date: date) -> floa
         if start_date <= payment_date <= end_date:
             return float(amount) if amount else 0.0
     
-    # If no rental schedule entry matches, log warning and return 0.0
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.warning(f"⚠️  No rental_schedule entry found for payment_date {payment_date}")
-    return 0.0
-
-
-def _get_proportionate_rental_for_payment_period(
-    lease_data: LeaseData, 
-    payment_date: date, 
-    frequency_months: int
-) -> float:
-    """
-    Calculate proportionate rental amount for a payment period.
-    Handles both advance and arrears payments when rental schedule changes mid-period.
-    
-    For payment in advance:
-        - Payment period = payment_date to payment_date + frequency_months
-        - Payment covers period starting from payment date
-    
-    For payment in arrears:
-        - Payment period = payment_date - frequency_months to payment_date
-        - Payment covers period that just ended
-    
-    Optimization: If payment period is entirely within one rental entry, return that entry's amount directly.
-    Only use proportionate calculation when period spans multiple entries.
-    
-    Args:
-        lease_data: Lease data with rental_schedule and payment_type
-        payment_date: The payment date
-        frequency_months: Payment frequency in months
-    
-    Returns:
-        Proportionate rental amount for the payment period
-    """
-    if not lease_data.rental_schedule or not isinstance(lease_data.rental_schedule, list):
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"⚠️  rental_schedule is required but missing for payment_date {payment_date}")
-        return 0.0
-    
-    # Determine if payment is in advance or arrears
-    payment_type = getattr(lease_data, 'payment_type', 'advance').lower()
-    payment_in_advance = payment_type != 'arrear' and payment_type != 'arrears'
-    
-    # Calculate payment period based on advance/arrears
-    from lease_accounting.utils.date_utils import edate
-    if payment_in_advance:
-        period_start = payment_date
-        period_end_uncapped = edate(payment_date, frequency_months)
-        period_end = period_end_uncapped
-        # CRITICAL: Cap payment period at lease_end_date - payment period should not extend beyond lease end
-        if lease_data.end_date and period_end > lease_data.end_date:
-            period_end = lease_data.end_date
-    else:
-        # Payment in arrears - covers period BEFORE payment date
-        period_start_uncapped = edate(payment_date, -frequency_months)
-        period_start = period_start_uncapped
-        # CRITICAL: Ensure period_start doesn't go before lease_start_date
-        if lease_data.lease_start_date and period_start < lease_data.lease_start_date:
-            period_start = lease_data.lease_start_date
-        period_end = payment_date
-        period_end_uncapped = payment_date
-    
-    # CRITICAL: Recalculate period_end to ensure it doesn't exceed lease_end_date
-    # This is important for the last payment which might extend beyond lease end
-    if lease_data.end_date and period_end > lease_data.end_date:
-        period_end = lease_data.end_date
-    
-    # CRITICAL: Calculate total days in FULL (uncapped) period for proportionate calculation
-    # When period is capped at lease_end_date, we need to use the full period days as denominator
-    # Example: Payment on Jan 1, normal period Jan 1-Feb 1 (31 days), capped period Jan 1-Jan 14 (14 days)
-    # We should calculate: (14/31) * monthly_rental, not (14/14) * monthly_rental
-    # NOTE: period_end_uncapped is the START of the next period, so we don't add 1
-    # Jan 1 to Feb 1 covers days Jan 1, Jan 2, ..., Jan 31 = 31 days (not 32)
-    if payment_in_advance:
-        # For advance: period from payment_date to next_payment_date (exclusive end)
-        # Jan 1 to Feb 1 = 31 days (Jan 1 through Jan 31)
-        full_period_days = (period_end_uncapped - period_start).days
-    else:
-        # For arrears: period from period_start_uncapped to payment_date (inclusive payment_date)
-        # Dec 1 to Jan 1 = 31 days (Dec 1 through Dec 31, Jan 1 is included)
-        full_period_days = (period_end_uncapped - period_start_uncapped).days + 1
-    
-    # Calculate actual period days (may be capped)
-    # For capped periods, include the end date (lease_end_date) in the calculation
-    if lease_data.end_date and period_end == lease_data.end_date:
-        # Capped period: include lease_end_date (e.g., Jan 1 to Jan 14 = 14 days)
-        actual_period_days = (period_end - period_start).days + 1
-    else:
-        # Normal period: end date is exclusive (e.g., Jan 1 to Feb 1 = 31 days)
-        actual_period_days = (period_end - period_start).days
-    
-    # Use full_period_days for proportionate calculation when period is capped
-    total_period_days = full_period_days if actual_period_days < full_period_days else actual_period_days
-    
-    if total_period_days <= 0:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  Invalid payment period: {period_start} to {period_end}")
-        return 0.0
-    
-    # Find all rental_schedule entries that overlap with payment period
-    overlapping_entries = []
-    
-    for rental_entry in lease_data.rental_schedule:
-        if not isinstance(rental_entry, dict):
-            continue
-        
-        start_date_str = rental_entry.get('start_date')
-        end_date_str = rental_entry.get('end_date')
-        amount = rental_entry.get('amount', 0.0)
-        
-        if not start_date_str or not end_date_str:
-            continue
-        
-        # Parse dates
-        try:
-            if isinstance(start_date_str, str):
-                entry_start = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-            else:
-                entry_start = start_date_str
-                
-            if isinstance(end_date_str, str):
-                entry_end = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-            else:
-                entry_end = end_date_str
-        except (ValueError, TypeError):
-            continue
-        
-        # Check for overlap between rental entry and payment period
-        # Overlap exists if: entry_start <= period_end AND entry_end >= period_start
-        if entry_start <= period_end and entry_end >= period_start:
-            overlapping_entries.append({
-                'start': entry_start,
-                'end': entry_end,
-                'amount': float(amount)
-            })
-    
-    if not overlapping_entries:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            f"⚠️  No rental_schedule entry overlaps with payment period "
-            f"({period_start} to {period_end}) for payment_date {payment_date}"
-        )
-        return 0.0
-    
-    # Optimization: If payment period is entirely within one rental entry, return that entry's amount
-    # CRITICAL: Don't use optimization if period_end is capped at lease_end_date - need proportionate calculation
-    # This ensures partial periods (e.g., Jan 1 to Jan 14 when normal period is Jan 1 to Feb 1) are calculated correctly
-    period_is_capped = lease_data.end_date and period_end == lease_data.end_date
-    
-    if not period_is_capped:
-        # Only use optimization if period is NOT capped (normal full period)
-        for entry in overlapping_entries:
-            # Check if payment period is entirely within this entry
-            if entry['start'] <= period_start and entry['end'] >= period_end:
-                # Payment period is entirely within this entry
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.debug(
-                    f"📊 Payment period entirely within rental entry: {payment_date}, "
-                    f"period={period_start} to {period_end}, entry={entry['start']} to {entry['end']}, "
-                    f"amount={entry['amount']}"
-                )
-                return entry['amount']
-    
-    # Payment period spans multiple entries - calculate proportionate rental
-    total_rental = 0.0
-    
-    for entry in overlapping_entries:
-        # Calculate overlap period
-        overlap_start = max(entry['start'], period_start)
-        # CRITICAL: Cap overlap_end at lease_end_date - don't calculate beyond lease end
-        overlap_end = min(entry['end'], period_end)
-        if lease_data.end_date:
-            overlap_end = min(overlap_end, lease_data.end_date)
-        
-        # Ensure overlap_end is not before overlap_start
-        if overlap_end < overlap_start:
-            continue
-        
-        # Calculate days in overlap
-        # For advance payments: overlap_end is exclusive (next period start), so don't add 1
-        # For capped periods at lease_end_date: include lease_end_date, so add 1
-        if lease_data.end_date and overlap_end == lease_data.end_date:
-            # Include lease_end_date when calculating overlap
-            days_in_overlap = (overlap_end - overlap_start).days + 1
-        else:
-            # Normal case: overlap_end is exclusive (start of next period)
-            days_in_overlap = (overlap_end - overlap_start).days
-        
-        if days_in_overlap > 0:
-            # CRITICAL: Use full_period_days as denominator for proportionate calculation
-            # This ensures partial periods are calculated correctly:
-            # Example: Payment Jan 1, full period Jan 1-Feb 1 (31 days), capped Jan 1-Jan 14 (14 days)
-            # If rental entry covers Jan 1-Jan 14, calculate: (14/31) * monthly_rental
-            # total_period_days already contains full_period_days when period is capped
-            weighted_amount = (days_in_overlap / total_period_days) * entry['amount']
-            total_rental += weighted_amount
-            
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.debug(
-                f"📊 Proportionate rental: payment_date={payment_date}, "
-                f"period={period_start} to {period_end} ({total_period_days} days), "
-                f"rental_entry={entry['start']} to {entry['end']}, "
-                f"overlap={overlap_start} to {overlap_end} ({days_in_overlap} days), "
-                f"amount={entry['amount']}, weighted={weighted_amount:.2f}"
-            )
-    
-    return total_rental
+    # If no rental schedule entry matches, return default rental_1
+    return lease_data.rental_1 or 0.0
 
 
 def _get_manual_rental_for_date(lease_data: LeaseData, payment_date: date) -> float:
@@ -1226,10 +882,26 @@ def _get_manual_rental_for_date(lease_data: LeaseData, payment_date: date) -> fl
     VBA Manual rental lookup (Lines 56-62, 109-115, 164-170)
     Supports up to 20 manual rental dates
     
-    Updated: rental_schedule always exists and is the source of truth.
+    Updated: When rental_schedule exists, use it to determine rental based on date ranges.
+    This matches VBA logic where rental table determines which rental is effective for each date.
     """
-    # rental_schedule should always be present - use it to determine rental
-    return _get_rental_from_schedule(lease_data, payment_date)
+    # If rental_schedule exists, use it (VBA rental table logic)
+    if lease_data.rental_schedule and isinstance(lease_data.rental_schedule, list) and len(lease_data.rental_schedule) > 0:
+        return _get_rental_from_schedule(lease_data, payment_date)
+    
+    # Otherwise, use old manual rental dates logic
+    rental_dates = lease_data.rental_dates if hasattr(lease_data, 'rental_dates') and lease_data.rental_dates else []
+    
+    # Check manual rentals (up to 20)
+    for r in range(20):
+        if r < len(rental_dates) and rental_dates[r]:
+            if rental_dates[r] >= payment_date:
+                # Get corresponding rental amount from rental_2 or rental array
+                # VBA uses: Range("Rental_1").Offset(mai, (r - 1))
+                # For manual, uses Rental_2 field
+                return lease_data.rental_2 or 0.0
+    
+    return lease_data.rental_1 or 0.0
 
 
 def _create_schedule_row(lease_data: LeaseData, payment_date: date, rental_amount: float,
@@ -1529,7 +1201,7 @@ def _calculate_initial_liability(lease_data: LeaseData, schedule: List[PaymentSc
     if rental_count == 0 and len(schedule) > 1:
         import logging
         logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️  _calculate_initial_liability: No rental payments found in {len(schedule)} rows.")
+        logger.warning(f"⚠️  _calculate_initial_liability: No rental payments found in {len(schedule)} rows. rental_1={lease_data.rental_1}")
     
     return total_pv
 
@@ -1775,7 +1447,7 @@ def _apply_manual_rental_adjustments(lease_data: LeaseData, schedule: List[Payme
     VBA Logic:
     - Loops through schedule dates (cell in C9:Cendrow)
     - For each schedule date, checks if it matches rental_date_2[i]
-    - If match, uses rental from rental_schedule for that date
+    - If match, uses rental_2[i] as rental amount
     - i increments from 1 to 20
     """
     if lease_data.manual_adj != "Yes":
@@ -1797,8 +1469,12 @@ def _apply_manual_rental_adjustments(lease_data: LeaseData, schedule: List[Payme
             if rental_amounts_by_date and rentaldate in rental_amounts_by_date:
                 rentalamount = rental_amounts_by_date[rentaldate]
             else:
-                # Use rental_schedule to get rental for this date
-                rentalamount = _get_rental_from_schedule(lease_data, rentaldate)
+                # Fallback: use rental_2, rental_3, etc. based on index
+                # VBA uses rental_2 for index 1, rental_3 for index 2, etc.
+                # But VBA code shows it only uses rental_2 column, offset by (i-1)
+                # Actually, VBA uses rental_2[i-1], so all rentals use rental_2 column
+                # But that seems wrong - let's use rental_amounts_by_date if available
+                rentalamount = lease_data.rental_2 or 0.0
             
             if row.date == rentaldate:
                 row.rental_amount = rentalamount

@@ -41,8 +41,6 @@ def create_lease():
     
     try:
         data = request.json
-        # CRITICAL: Log IBR field in incoming data
-        logger.info(f"➕ API received create data - IBR: ibr={data.get('ibr')}, borrowing_rate={data.get('borrowing_rate')}")
         lease_id = database.save_lease(user_id, data)
         logger.info(f"✅ Lease saved: lease_id={lease_id}")
         
@@ -66,8 +64,6 @@ def get_lease(lease_id):
     try:
         lease = database.get_lease(lease_id, user_id)
         if lease:
-            # CRITICAL: Log IBR field in API response
-            logger.info(f"🔍 API returning lease - IBR: ibr={lease.get('ibr')}, borrowing_rate={lease.get('borrowing_rate')}")
             return jsonify({'success': True, 'lease': lease})
         else:
             return jsonify({'success': False, 'error': 'Lease not found'}), 404
@@ -85,8 +81,6 @@ def update_lease(lease_id):
     
     try:
         data = request.json
-        # CRITICAL: Log IBR field in incoming data
-        logger.info(f"✏️ API received update data - IBR: ibr={data.get('ibr')}, borrowing_rate={data.get('borrowing_rate')}")
         data['lease_id'] = lease_id
         updated_id = database.save_lease(user_id, data)
         logger.info(f"✅ Lease updated: lease_id={updated_id}")
