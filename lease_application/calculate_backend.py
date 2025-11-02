@@ -59,23 +59,17 @@ def calculate_lease():
         if lease_start and end_date and lease_start >= end_date:
             logger.warning(f"⚠️  Lease end date ({end_date}) must be AFTER start date ({lease_start})!")
         
-        # Extract borrowing_rate properly from payload (check 'ibr' first, then 'borrowing_rate')
+        # Extract IBR from payload
         ibr_val = data.get('ibr')
-        br_val = data.get('borrowing_rate')
-        borrowing_rate = None
+        ibr = None
         if ibr_val is not None and ibr_val != '':
             try:
-                borrowing_rate = float(ibr_val)
+                ibr = float(ibr_val)
             except (ValueError, TypeError):
-                raise ValueError(f"Invalid borrowing_rate value in 'ibr' field: {ibr_val}. Must be a valid number.")
-        elif br_val is not None and br_val != '':
-            try:
-                borrowing_rate = float(br_val)
-            except (ValueError, TypeError):
-                raise ValueError(f"Invalid borrowing_rate value in 'borrowing_rate' field: {br_val}. Must be a valid number.")
+                raise ValueError(f"Invalid IBR value in 'ibr' field: {ibr_val}. Must be a valid number.")
         
-        if borrowing_rate is None:
-            raise ValueError("borrowing_rate is required. Please provide either 'ibr' or 'borrowing_rate' field in the payload.")
+        if ibr is None:
+            raise ValueError("IBR is required. Please provide 'ibr' field in the payload.")
         
         # CRITICAL: Extract frequency_months BEFORE creating LeaseData
         # Check frequency_months first, then rent_frequency, then default to 1
@@ -138,7 +132,7 @@ def calculate_lease():
             index_rate_table=data.get('index_rate_table'),
             
             # Rates
-            borrowing_rate=borrowing_rate,
+            borrowing_rate=ibr,
             compound_months=int(data.get('compound_months')) if data.get('compound_months') else None,
             fv_of_rou=float(data.get('fair_value', 0) or data.get('fv_of_rou', 0) or 0),
             
@@ -285,23 +279,17 @@ def calculate_lease():
 
 def _map_lease_to_leasedata(lease_dict: dict) -> LeaseData:
     """Map database lease dict to LeaseData model"""
-    # Extract borrowing_rate properly from payload (check 'ibr' first, then 'borrowing_rate')
+    # Extract IBR from lease data
     ibr_val = lease_dict.get('ibr')
-    br_val = lease_dict.get('borrowing_rate')
-    borrowing_rate = None
+    ibr = None
     if ibr_val is not None and ibr_val != '':
         try:
-            borrowing_rate = float(ibr_val)
+            ibr = float(ibr_val)
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid borrowing_rate value in 'ibr' field: {ibr_val}. Must be a valid number.")
-    elif br_val is not None and br_val != '':
-        try:
-            borrowing_rate = float(br_val)
-        except (ValueError, TypeError):
-            raise ValueError(f"Invalid borrowing_rate value in 'borrowing_rate' field: {br_val}. Must be a valid number.")
+            raise ValueError(f"Invalid IBR value in 'ibr' field: {ibr_val}. Must be a valid number.")
     
-    if borrowing_rate is None:
-        raise ValueError("borrowing_rate is required. Please provide either 'ibr' or 'borrowing_rate' field in the lease data.")
+    if ibr is None:
+        raise ValueError("IBR is required. Please provide 'ibr' field in the lease data.")
     
     # Parse rental_schedule from JSON if it exists in database
     rental_schedule = None
@@ -349,7 +337,7 @@ def _map_lease_to_leasedata(lease_dict: dict) -> LeaseData:
         accrual_day=int(lease_dict.get('rent_accrual_day', 1) or 1),
         
         # Rates
-        borrowing_rate=borrowing_rate,
+        borrowing_rate=ibr,
         compound_months=int(lease_dict.get('compound_months')) if lease_dict.get('compound_months') else None,
         fv_of_rou=float(lease_dict.get('fair_value', 0) or 0),
         

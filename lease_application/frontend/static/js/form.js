@@ -545,7 +545,6 @@ function mapExtractedDataToForm(extractedData) {
         'day_of_month': 'pay_day_of_month',
         'rental_1': 'rental_amount',
         'currency': 'currency',
-        'borrowing_rate': 'ibr',
         'compound_months': 'compound_months',
         'security_deposit': 'security_deposit_amount_1',
         'esc_freq_months': 'escalation_frequency',
@@ -718,10 +717,9 @@ async function loadLeaseData(leaseId) {
             console.log('🔍 rental_schedule in response:', lease.rental_schedule, 'Type:', typeof lease.rental_schedule);
             
             // Map database field names to form field names
-            // Database uses 'borrowing_rate' but form field is 'ibr'
+            // Database uses 'ibr' - form field is also 'ibr'
             const fieldMapping = {
-                'borrowing_rate': 'ibr',  // Database column 'borrowing_rate' maps to form field 'ibr'
-                'ibr': 'ibr',  // Also handle if database has 'ibr' column
+                'ibr': 'ibr',  // Database column 'ibr' maps to form field 'ibr'
                 // All other fields match database column names exactly
             };
             
@@ -836,20 +834,61 @@ async function loadLeaseData(leaseId) {
                     }
                 } else {
                     // Debug: log fields that weren't found (only for important fields)
-                    const importantFields = ['ibr', 'borrowing_rate', 'lease_start_date', 'lease_end_date', 
+                    const importantFields = ['ibr', 'lease_start_date', 'lease_end_date', 
                                             'first_payment_date', 'rental_amount', 'escalation_percentage'];
                     if (importantFields.includes(key) || importantFields.includes(formFieldName)) {
                         console.warn(`⚠️ Field '${key}' → '${formFieldName}' (value: ${value}) not found in form`);
-                        // Special handling for borrowing_rate -> ibr mapping
-                        if (key === 'borrowing_rate' && value !== null && value !== undefined && value !== '') {
+                        // Special handling for ibr field
+                        if (key === 'ibr' && value !== null && value !== undefined && value !== '') {
                             const ibrField = form.querySelector('[name="ibr"]');
                             if (ibrField) {
-                                console.log(`✅ Found ibr field, populating with borrowing_rate value: ${value}`);
-                                ibrField.value = parseFloat(value);
+                                console.log(`✅ Found ibr field, populating with ${key} value: ${value}`);
+                                const numValue = parseFloat(value);
+                                if (!isNaN(numValue)) {
+                                    ibrField.value = numValue;
+                                }
                             }
                         }
                     }
                 }
+            }
+            
+            // Ensure IBR field is populated - ALWAYS overwrite with database value
+            // This is done after the loop to ensure IBR always reflects what's in the database
+            const ibrField = form.querySelector('[name="ibr"]');
+            if (ibrField) {
+                // Get IBR value from lease data - database uses 'ibr'
+                const ibrValue = lease.ibr;
+                let dbIbrValue = null;
+                
+                // Check if ibrValue exists and is valid
+                if (ibrValue !== null && ibrValue !== undefined && ibrValue !== '') {
+                    const numValue = parseFloat(ibrValue);
+                    if (!isNaN(numValue)) {
+                        dbIbrValue = numValue;
+                    }
+                }
+                
+                // ALWAYS update the field with the database value, regardless of current value
+                // This ensures the form always reflects what's in the database
+                console.log(`🔍 IBR update check: dbValue=${dbIbrValue}, currentFieldValue=${ibrField.value}, lease.ibr=${lease.ibr} (type: ${typeof lease.ibr})`);
+                
+                if (dbIbrValue !== null && dbIbrValue !== undefined) {
+                    // Always overwrite, even if value looks the same
+                    console.log(`✅ FORCE UPDATING IBR field with database value: ${dbIbrValue} (was: ${ibrField.value})`);
+                    ibrField.value = dbIbrValue;
+                    // Trigger input event to ensure any listeners are notified
+                    ibrField.dispatchEvent(new Event('input', { bubbles: true }));
+                    ibrField.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (ibrValue === null || ibrValue === undefined || ibrValue === '') {
+                    // If database explicitly has null/empty, clear the field
+                    console.log(`✅ CLEARING IBR field (database value is null/empty)`);
+                    ibrField.value = '';
+                    ibrField.dispatchEvent(new Event('input', { bubbles: true }));
+                    ibrField.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            } else {
+                console.error('❌ IBR field not found in form!');
             }
             
             // Special handling for dependent fields
@@ -1982,8 +2021,19 @@ async function saveDraft() {
     // Debug: Log ibr value specifically
     const ibrField = form.querySelector('[name="ibr"]');
     if (ibrField) {
-        console.log('🔑 IBR field value:', ibrField.value, 'Type:', typeof ibrField.value);
-        data.ibr = ibrField.value || data.ibr; // Ensure ibr is included
+        const ibrValue = ibrField.value.trim();
+        console.log('🔑 IBR field value:', ibrValue, 'Type:', typeof ibrValue);
+        // Always use the field's current value, even if empty (convert empty string to null for database)
+        if (ibrValue === '' || ibrValue === null || ibrValue === undefined) {
+            data.ibr = null;
+        } else {
+            const numValue = parseFloat(ibrValue);
+            data.ibr = isNaN(numValue) ? null : numValue;
+        }
+        console.log('🔑 IBR value being saved:', data.ibr);
+    } else {
+        console.warn('⚠️ IBR field not found in form!');
+        data.ibr = null;
     }
     
     // Collect rental schedule data from table
@@ -2002,7 +2052,7 @@ async function saveDraft() {
     data.status = 'draft';
     
     console.log('📤 Saving draft:', data);
-    console.log('🔑 IBR in data:', data.ibr, 'borrowing_rate:', data.borrowing_rate);
+    console.log('🔑 IBR in data:', data.ibr);
     
     // Validate Transition Option if Transition Date is provided
     const transitionDate = data.transition_date;
@@ -2070,8 +2120,19 @@ async function submitForm() {
     // Debug: Log ibr value specifically
     const ibrField = form.querySelector('[name="ibr"]');
     if (ibrField) {
-        console.log('🔑 IBR field value:', ibrField.value, 'Type:', typeof ibrField.value);
-        data.ibr = ibrField.value || data.ibr; // Ensure ibr is included
+        const ibrValue = ibrField.value.trim();
+        console.log('🔑 IBR field value:', ibrValue, 'Type:', typeof ibrValue);
+        // Always use the field's current value, even if empty (convert empty string to null for database)
+        if (ibrValue === '' || ibrValue === null || ibrValue === undefined) {
+            data.ibr = null;
+        } else {
+            const numValue = parseFloat(ibrValue);
+            data.ibr = isNaN(numValue) ? null : numValue;
+        }
+        console.log('🔑 IBR value being saved:', data.ibr);
+    } else {
+        console.warn('⚠️ IBR field not found in form!');
+        data.ibr = null;
     }
     
     // Collect rental schedule data from table
@@ -2120,7 +2181,7 @@ async function submitForm() {
     
     // Log data being sent for debugging
     console.log('📤 Submitting lease data:', data);
-    console.log('🔑 IBR in data:', data.ibr, 'borrowing_rate:', data.borrowing_rate);
+    console.log('🔑 IBR in data:', data.ibr);
     
     try {
         // Use PUT with lease_id in URL for updates, POST for new leases

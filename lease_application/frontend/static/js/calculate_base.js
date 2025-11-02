@@ -198,7 +198,7 @@
                 escalation_percent: lease.escalation_percent || 0,
                 esc_freq_months: (lease.esc_freq_months || lease.escalation_frequency) ? (lease.esc_freq_months || lease.escalation_frequency) : null,
                 index_rate_table: lease.index_rate_table || '',
-                borrowing_rate: lease.borrowing_rate || 8,
+                ibr: lease.ibr ?? null,  // Changed from borrowing_rate to ibr to match API
                 compound_months: lease.compound_months || 12,
                 fv_of_rou: lease.fv_of_rou || 0,
                 currency: lease.currency || 'USD',

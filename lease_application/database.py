@@ -171,6 +171,14 @@ def migrate_leases_table(conn):
         ("reviewed_by", "TEXT"),
         ("last_reviewed_date", "DATE"),
         ("rental_schedule", "TEXT"),  # JSON string storing rental schedule array
+        # Financial fields
+        ("ibr", "REAL"),  # Incremental Borrowing Rate
+        ("irr", "REAL"),
+        ("fair_value", "REAL"),
+        ("compound_months", "INTEGER"),
+        ("use_rate_type", "TEXT"),
+        ("initial_direct_expenditure", "REAL"),
+        ("lease_incentive", "REAL"),
         # Missing form fields
         ("tenure_months", "REAL"),
         ("tenure_days_input", "INTEGER"),
@@ -185,6 +193,23 @@ def migrate_leases_table(conn):
         ("sublease_end_date", "DATE"),
         ("sublease_payment_details", "TEXT"),  # JSON string for sublease payment details
     ]
+    
+    # Check if borrowing_rate exists and migrate it to ibr if needed
+    try:
+        cursor = conn.execute("PRAGMA table_info(leases)")
+        existing_columns = [row[1] for row in cursor.fetchall()]
+        
+        # If borrowing_rate exists but ibr doesn't, copy data and rename
+        if 'borrowing_rate' in existing_columns and 'ibr' not in existing_columns:
+            logger.info("🔄 Migrating borrowing_rate to ibr column")
+            try:
+                conn.execute("ALTER TABLE leases ADD COLUMN ibr REAL")
+                conn.execute("UPDATE leases SET ibr = borrowing_rate WHERE borrowing_rate IS NOT NULL")
+                logger.info("✅ Migrated borrowing_rate data to ibr column")
+            except sqlite3.OperationalError as e:
+                logger.warning(f"⚠️ Could not migrate borrowing_rate to ibr: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️ Error checking for column migration: {e}")
     
     for column_name, column_def in migrations:
         try:
@@ -265,7 +290,6 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
         'lease_end_date': 'lease_end_date',
         'status': 'status',
         'ibr': 'ibr',  # Form field 'ibr' maps to database column 'ibr'
-        'borrowing_rate': 'ibr',  # Alternative field name also maps to 'ibr' column
         'asset_id_code': 'asset_id_code',
         'asset_class': 'asset_class',
         'asset_location': 'asset_location',
@@ -315,6 +339,7 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
     
     # Create mapped data
     mapped_data = {}
+    
     for key, value in lease_data.items():
         if key == 'lease_id' or key == 'user_id':
             continue
@@ -396,14 +421,19 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
     numeric_fields = ['escalation_percentage', 'rental_amount', 'escalation_frequency', 
                      'rent_frequency', 'payment_interval', 'rent_accrual_day',
                      'purchase_option_price', 'useful_life_months', 'security_deposit_amount',
-                     'security_discount_rate', 'aro_initial_estimate', 'ibr', 'borrowing_rate']
+                     'security_discount_rate', 'aro_initial_estimate', 'ibr']
     
     for field in numeric_fields:
-        if field in mapped_data and mapped_data[field] != '' and mapped_data[field] is not None:
-            try:
-                mapped_data[field] = float(mapped_data[field]) if '.' in str(mapped_data[field]) else int(mapped_data[field])
-            except (ValueError, TypeError):
+        if field in mapped_data:
+            value = mapped_data[field]
+            # Convert empty strings to None for numeric fields
+            if value == '' or value is None:
                 mapped_data[field] = None
+            else:
+                try:
+                    mapped_data[field] = float(value) if '.' in str(value) else int(value)
+                except (ValueError, TypeError):
+                    mapped_data[field] = None
     
     mapped_data['user_id'] = user_id
     
@@ -422,9 +452,11 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
         filtered_values = []
         for field in update_fields:
             value = lease_data_to_save.get(field)
+            # Allow None values for IBR and other numeric fields, as well as boolean fields
             if value is not None or field in ['related_party', 'posting_date_same', 'has_purchase_option', 
                                              'has_security_deposit', 'has_aro', 'short_term_usgaap', 
-                                             'short_term_ifrs', 'low_value_asset', 'scope_exemption']:
+                                             'short_term_ifrs', 'low_value_asset', 'scope_exemption',
+                                             'ibr']:
                 filtered_fields.append(field)
                 filtered_values.append(value)
         
@@ -458,10 +490,27 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
             update_values.append(lease_id)
             update_values.append(user_id)
             
+            # Log IBR update for debugging
+            if 'ibr' in valid_update_fields:
+                ibr_index = valid_update_fields.index('ibr')
+                logger.info(f"📝 Updating IBR for lease {lease_id}: {valid_update_values[ibr_index]}")
+            
+            logger.info(f"📝 UPDATE SQL: UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?")
+            logger.info(f"📝 UPDATE values: {update_values}")
+            
             conn.execute(
                 f"UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?",
                 update_values
             )
+            conn.commit()
+            
+            # Verify the update
+            updated_row = conn.execute(
+                "SELECT ibr FROM leases WHERE lease_id = ? AND user_id = ?",
+                (lease_id, user_id)
+            ).fetchone()
+            if updated_row:
+                logger.info(f"✅ Verified IBR after update: {updated_row[0]}")
         return lease_id
     else:
         # Create new lease
@@ -526,6 +575,17 @@ def get_lease(lease_id: int, user_id: int) -> Optional[Dict]:
         # Convert sqlite3.Row to dict properly
         # Use column names as keys to ensure correct field names
         lease_dict = {key: row[key] for key in row.keys()}
+        
+        # Log IBR value for debugging
+        ibr_value = lease_dict.get('ibr')
+        logger.info(f"📋 Retrieved lease {lease_id}: IBR = {ibr_value} (type: {type(ibr_value)})")
+        # Ensure IBR is properly converted to a number if it exists
+        if ibr_value is not None and ibr_value != '':
+            try:
+                lease_dict['ibr'] = float(ibr_value)
+                logger.info(f"📋 Converted IBR to float: {lease_dict['ibr']}")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"⚠️ Could not convert IBR to float: {e}")
         
         # Parse JSON fields back to objects for form auto-population
         import json

@@ -202,7 +202,7 @@ function mapLeaseToCalculation(lease) {
         escalation_percent: lease.escalation_percentage || lease.escalation_percent || 0,
         esc_freq_months: (lease.escalation_frequency || lease.esc_freq_months) ? (lease.escalation_frequency || lease.esc_freq_months) : null,
         index_rate_table: lease.index_rate_table || '',
-        borrowing_rate: lease.ibr || lease.borrowing_rate || 8,
+        ibr: lease.ibr ?? null,  // Changed from borrowing_rate to ibr to match API
         compound_months: lease.compound_months || 12,
         fv_of_rou: lease.fair_value || lease.fv_of_rou || 0,
         currency: lease.currency || 'USD',
@@ -272,6 +272,7 @@ async function calculateLease() {
         const lease = leaseResponseData.lease || leaseResponseData;
         console.log('📋 Extracted lease object:', lease);
         console.log('📋 rental_amount value:', lease.rental_amount, 'type:', typeof lease.rental_amount);
+        console.log('📋 IBR value from lease:', lease.ibr, 'type:', typeof lease.ibr);
         
         // CRITICAL FIX: Ensure rental_amount is a number
         if (lease.rental_amount !== null && lease.rental_amount !== undefined) {
@@ -281,10 +282,40 @@ async function calculateLease() {
         }
         console.log('📋 rental_amount after parseFloat:', lease.rental_amount);
         
+        // Validate IBR before proceeding
+        if (lease.ibr === null || lease.ibr === undefined || lease.ibr === '') {
+            showError('IBR (Incremental Borrowing Rate) is required for calculation. Please set IBR in the lease form first.');
+            document.getElementById('loading').style.display = 'none';
+            return;
+        }
+        
+        const ibrValue = parseFloat(lease.ibr);
+        if (isNaN(ibrValue)) {
+            showError(`Invalid IBR value: ${lease.ibr}. IBR must be a valid number.`);
+            document.getElementById('loading').style.display = 'none';
+            return;
+        }
+        console.log('✅ IBR validated:', ibrValue);
+        
         // Map lease to calculation format
         const calculationData = mapLeaseToCalculation(lease);
         console.log('📋 Mapped calculation data:', calculationData);
         console.log('📋 rental_1 after mapping:', calculationData.rental_1);
+        console.log('📋 IBR value in calculation data:', calculationData.ibr, 'Type:', typeof calculationData.ibr);
+        
+        // Ensure IBR is included and is a valid number
+        if (calculationData.ibr === null || calculationData.ibr === undefined || calculationData.ibr === '') {
+            console.error('❌ IBR is missing in calculation data! Lease IBR:', lease.ibr);
+        } else {
+            const ibrNum = parseFloat(calculationData.ibr);
+            if (isNaN(ibrNum)) {
+                console.error('❌ IBR is not a valid number:', calculationData.ibr);
+            } else {
+                calculationData.ibr = ibrNum;
+                console.log('✅ IBR validated and set to:', calculationData.ibr);
+            }
+        }
+        
         calculationData.from_date = fromDate;
         calculationData.to_date = toDate;
 
