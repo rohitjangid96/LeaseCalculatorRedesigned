@@ -108,6 +108,26 @@ def init_database():
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             )
         """)
+
+        # App configuration table (key-value)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS app_config (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
+        # Lease audit trail
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS lease_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lease_id INTEGER NOT NULL,
+                user TEXT,
+                action TEXT,
+                comment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         
         # Add role and is_active columns if they don't exist (migration for existing databases)
         try:
@@ -123,7 +143,74 @@ def init_database():
         # Migrate leases table - add missing columns if they don't exist
         migrate_leases_table(conn)
         
+        create_document_table(conn)
         logger.info("✅ Database initialized (users and leases tables)")
+
+
+def create_document_table(conn):
+    """Create the lease_documents table"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lease_documents (
+            document_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lease_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_size INTEGER,
+            uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            uploaded_by INTEGER,
+            document_type TEXT,
+            FOREIGN KEY (lease_id) REFERENCES leases (lease_id),
+            FOREIGN KEY (uploaded_by) REFERENCES users (user_id)
+        )
+    """)
+    logger.info("✅ lease_documents table initialized")
+
+
+def save_document_metadata(lease_id, file_name, file_path, file_size, uploaded_by, document_type=None):
+    """Saves document metadata to the database."""
+    with get_db_connection() as conn:
+        conn.execute(
+            """INSERT INTO lease_documents (lease_id, file_name, file_path, file_size, uploaded_by, document_type)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (lease_id, file_name, file_path, file_size, uploaded_by, document_type)
+        )
+
+
+def get_documents_by_lease(lease_id):
+    """Retrieves all documents for a given lease, excluding file_path."""
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """SELECT document_id, lease_id, file_name, file_size, uploaded_at, uploaded_by, document_type
+               FROM lease_documents WHERE lease_id = ? ORDER BY uploaded_at DESC""",
+            (lease_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_document_by_id(document_id):
+    """Retrieves a single document's metadata by its ID."""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM lease_documents WHERE document_id = ?",
+            (document_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# ============ APP CONFIG ============
+def get_configs() -> Dict:
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT key, value FROM app_config").fetchall()
+        return {r['key']: r['value'] for r in rows}
+
+def set_config(key: str, value: str):
+    with get_db_connection() as conn:
+        conn.execute("INSERT INTO app_config(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+def get_config(key: str) -> Optional[str]:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT value FROM app_config WHERE key = ?", (key,)).fetchone()
+        return row['value'] if row else None
 
 
 def migrate_leases_table(conn):
@@ -170,6 +257,11 @@ def migrate_leases_table(conn):
         ("last_modified_date", "DATE"),
         ("reviewed_by", "TEXT"),
         ("last_reviewed_date", "DATE"),
+        ("submitted_by", "TEXT"),
+        ("submitted_at", "TIMESTAMP"),
+        ("approved_by", "TEXT"),
+        ("approved_at", "TIMESTAMP"),
+        ("rejection_reason", "TEXT"),
         ("rental_schedule", "TEXT"),  # JSON string storing rental schedule array
         # Financial fields
         ("ibr", "REAL"),  # Incremental Borrowing Rate
@@ -220,6 +312,70 @@ def migrate_leases_table(conn):
                 logger.warning(f"⚠️ Could not add column {column_name}: {e}")
 
 
+# ============ EMAIL ============
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def send_email(smtp_host: str, smtp_port: int, username: str, password: str, from_addr: str, to_addrs: list, subject: str, html_body: str):
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = from_addr
+    msg['To'] = ', '.join(to_addrs)
+
+    part = MIMEText(html_body, 'html')
+    msg.attach(part)
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.starttls()
+        if username and password:
+            server.login(username, password)
+        server.sendmail(from_addr, to_addrs, msg.as_string())
+
+
+# ============ ADMIN / USERS ============
+def list_users() -> list:
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT user_id, username, email, role, is_active, created_at FROM users ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+def set_user_role(user_id: int, role: str):
+    with get_db_connection() as conn:
+        conn.execute("UPDATE users SET role = ? WHERE user_id = ?", (role, user_id))
+
+def set_user_active(user_id: int, is_active: bool):
+    with get_db_connection() as conn:
+        conn.execute("UPDATE users SET is_active = ? WHERE user_id = ?", (1 if is_active else 0, user_id))
+
+
+def add_lease_audit(lease_id: int, user: str, action: str, comment: str = None):
+    with get_db_connection() as conn:
+        conn.execute("INSERT INTO lease_audit(lease_id, user, action, comment) VALUES(?, ?, ?, ?)", (lease_id, user, action, comment))
+
+
+# ============ APPROVAL FLOW ============
+def submit_lease_for_review(lease_id: int, user_id: int):
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE leases SET status = 'submitted', submitted_by = (SELECT username FROM users WHERE user_id = ?), submitted_at = CURRENT_TIMESTAMP WHERE lease_id = ? AND user_id = ?",
+            (user_id, lease_id, user_id)
+        )
+
+def approve_lease(lease_id: int, approver_user_id: int):
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE leases SET status = 'approved', approved_by = (SELECT username FROM users WHERE user_id = ?), approved_at = CURRENT_TIMESTAMP, last_reviewed_date = CURRENT_TIMESTAMP, reviewed_by = (SELECT username FROM users WHERE user_id = ?) WHERE lease_id = ?",
+            (approver_user_id, approver_user_id, lease_id)
+        )
+
+def reject_lease(lease_id: int, approver_user_id: int, reason: str):
+    with get_db_connection() as conn:
+        conn.execute(
+            "UPDATE leases SET status = 'rejected', rejection_reason = ?, approved_by = NULL, approved_at = NULL, last_reviewed_date = CURRENT_TIMESTAMP, reviewed_by = (SELECT username FROM users WHERE user_id = ?) WHERE lease_id = ?",
+            (reason, approver_user_id, lease_id)
+        )
+
+
 # ============ USER MANAGEMENT ============
 
 def hash_password(password: str) -> str:
@@ -266,9 +422,18 @@ def get_user(user_id: int) -> Optional[Dict]:
         return dict(row) if row else None
 
 
+def get_user_by_username(username: str) -> Optional[Dict]:
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT user_id, username, email, role, is_active, created_at FROM users WHERE username = ?",
+            (username,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 # ============ LEASE MANAGEMENT ============
 
-def save_lease(user_id: int, lease_data: Dict) -> int:
+def save_lease(user_id: int, lease_data: Dict, role: str = 'user') -> int:
     """Save or update a lease"""
     lease_id = lease_data.get('lease_id')
     
@@ -488,26 +653,33 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
             
             update_values = valid_update_values.copy()
             update_values.append(lease_id)
-            update_values.append(user_id)
             
             # Log IBR update for debugging
             if 'ibr' in valid_update_fields:
                 ibr_index = valid_update_fields.index('ibr')
                 logger.info(f"📝 Updating IBR for lease {lease_id}: {valid_update_values[ibr_index]}")
-            
-            logger.info(f"📝 UPDATE SQL: UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?")
-            logger.info(f"📝 UPDATE values: {update_values}")
-            
-            conn.execute(
-                f"UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?",
-                update_values
-            )
+
+            if role == 'admin':
+                logger.info(f"📝 ADMIN UPDATE SQL: UPDATE leases SET {set_clause} WHERE lease_id = ?")
+                logger.info(f"📝 UPDATE values: {update_values}")
+                conn.execute(
+                    f"UPDATE leases SET {set_clause} WHERE lease_id = ?",
+                    update_values
+                )
+            else:
+                update_values.append(user_id)
+                logger.info(f"📝 UPDATE SQL: UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?")
+                logger.info(f"📝 UPDATE values: {update_values}")
+                conn.execute(
+                    f"UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?",
+                    update_values
+                )
             conn.commit()
             
             # Verify the update
             updated_row = conn.execute(
-                "SELECT ibr FROM leases WHERE lease_id = ? AND user_id = ?",
-                (lease_id, user_id)
+                "SELECT ibr FROM leases WHERE lease_id = ?",
+                (lease_id,)
             ).fetchone()
             if updated_row:
                 logger.info(f"✅ Verified IBR after update: {updated_row[0]}")
@@ -562,13 +734,20 @@ def save_lease(user_id: int, lease_data: Dict) -> int:
                 raise
 
 
-def get_lease(lease_id: int, user_id: int) -> Optional[Dict]:
-    """Get lease by ID (only if owned by user)"""
+def get_lease(lease_id: int, user_id: Optional[int] = None) -> Optional[Dict]:
+    """Get lease by ID. If user_id is provided, check for ownership."""
     with get_db_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM leases WHERE lease_id = ? AND user_id = ?",
-            (lease_id, user_id)
+        if user_id:
+            row = conn.execute(
+                "SELECT * FROM leases WHERE lease_id = ? AND user_id = ?",
+                (lease_id, user_id)
             ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM leases WHERE lease_id = ?",
+                (lease_id,)
+            ).fetchone()
+            
         if not row:
             return None
         
@@ -609,55 +788,20 @@ def get_lease(lease_id: int, user_id: int) -> Optional[Dict]:
         return lease_dict
 
 
-def get_all_leases(user_id: int) -> list:
-    """Get all leases for a user"""
+def get_leases_by_user(user_id: int) -> list:
+    """Get all leases for a specific user"""
     with get_db_connection() as conn:
-        # Check if new columns exist, otherwise use old column names
-        cursor = conn.execute("PRAGMA table_info(leases)")
-        columns = [row[1] for row in cursor.fetchall()]
-        
-        # Build SELECT with fallbacks for missing columns
-        select_parts = ["lease_id"]
-        
-        if 'agreement_title' in columns:
-            select_parts.append("agreement_title")
-        elif 'lease_name' in columns:
-            select_parts.append("lease_name as agreement_title")
-        else:
-            select_parts.append("NULL as agreement_title")
-        
-        if 'company_name' in columns:
-            select_parts.append("company_name")
-        elif 'counterparty' in columns:
-            select_parts.append("counterparty as company_name")
-        else:
-            select_parts.append("NULL as company_name")
-        
-        select_parts.append("asset_class")
-        select_parts.append("lease_start_date")
-        
-        if 'lease_end_date' in columns:
-            select_parts.append("lease_end_date")
-        elif 'end_date' in columns:
-            select_parts.append("end_date as lease_end_date")
-        else:
-            select_parts.append("NULL as lease_end_date")
-        
-        if 'status' in columns:
-            select_parts.append("status")
-        elif 'approval_status' in columns:
-            select_parts.append("approval_status as status")
-        else:
-            select_parts.append("'draft' as status")
-        
-        select_parts.append("created_at")
-        
-        query = f"""SELECT {', '.join(select_parts)}
-                   FROM leases 
-                   WHERE user_id = ? 
-                   ORDER BY created_at DESC"""
-        
-        rows = conn.execute(query, (user_id,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM leases WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_all_leases() -> list:
+    """Get all leases from the database"""
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM leases ORDER BY created_at DESC").fetchall()
         return [dict(row) for row in rows]
 
 

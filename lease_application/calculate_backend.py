@@ -7,13 +7,13 @@ from flask import Blueprint, request, jsonify, session
 from datetime import date, datetime
 from typing import Optional, List
 import logging
-from lease_accounting.core.models import LeaseData, ProcessingFilters
-from lease_accounting.schedule.generator_vba_complete import generate_complete_schedule
-from lease_accounting.core.processor import LeaseProcessor
-from lease_accounting.core.results_processor import ResultsProcessor
-from lease_accounting.utils.journal_generator import JournalGenerator
-from auth import require_login
-import database
+from .lease_accounting.core.models import LeaseData, ProcessingFilters
+from .lease_accounting.schedule.generator_vba_complete import generate_complete_schedule
+from .lease_accounting.core.processor import LeaseProcessor
+from .lease_accounting.core.results_processor import ResultsProcessor
+from .lease_accounting.utils.journal_generator import JournalGenerator
+from .auth import require_login
+from . import database
 
 # Create blueprint
 calc_bp = Blueprint('calc', __name__, url_prefix='/api')
@@ -231,7 +231,7 @@ def calculate_lease():
                 for i, row in enumerate(schedule):
                     if row.date > to_date:
                         prev_row = schedule[i-1] if i > 0 else row
-                        from lease_accounting.core.models import PaymentScheduleRow
+                        from .lease_accounting.core.models import PaymentScheduleRow
                         new_row = PaymentScheduleRow(
                             date=to_date,
                             rental_amount=0.0,

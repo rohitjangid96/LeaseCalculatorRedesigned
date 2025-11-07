@@ -11,8 +11,8 @@ from pathlib import Path
 from werkzeug.utils import secure_filename
 
 try:
-    from lease_accounting.utils.pdf_extractor import extract_text_from_pdf, has_selectable_text
-    from lease_accounting.utils.ai_extractor import (
+    from .lease_accounting.utils.pdf_extractor import extract_text_from_pdf, has_selectable_text
+    from .lease_accounting.utils.ai_extractor import (
         extract_lease_info_from_text,
         extract_lease_info_from_pdf,
         HAS_GEMINI
@@ -139,7 +139,7 @@ def extract_lease_pdf():
                 }), 400
             
             # Prepare text for AI (smart truncation if needed)
-            from lease_accounting.utils.ai_extractor import MAX_TEXT_LENGTH
+            from .lease_accounting.utils.ai_extractor import MAX_TEXT_LENGTH
             original_text_length = len(text)
             if len(text) > MAX_TEXT_LENGTH:
                 logger.debug(f"   ✂️ Text too long ({len(text)} chars), truncating to {MAX_TEXT_LENGTH} chars")

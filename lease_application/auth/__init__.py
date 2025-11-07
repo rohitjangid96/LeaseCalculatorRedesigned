@@ -8,7 +8,7 @@ VBA Source: None (new functionality)
 from flask import Blueprint, request, jsonify, session
 from functools import wraps
 import logging
-import database
+from .. import database
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,14 @@ def login():
         session['user_id'] = user['user_id']
         session['username'] = user['username']
         logger.info(f"✅ Login successful: user_id={user['user_id']}, username={username}")
+        
+        # Return the full user object, similar to /api/user
+        user_info = database.get_user(user['user_id'])
+        user_info.pop('password_hash', None) # Ensure password hash is not sent
+
         return jsonify({
             'success': True,
-            'user': {
-                'user_id': user['user_id'],
-                'username': user['username'],
-                'email': user.get('email')
-            }
+            'user': user_info
         })
     else:
         logger.warning(f"❌ Login failed: Invalid credentials for username={username}")
@@ -92,21 +93,31 @@ def get_current_user():
     return jsonify({'success': False, 'message': 'Not logged in'}), 401
 
 
-# require_login decorator is defined in auth/auth.py
-# Import it here for convenience, but other modules should import from auth.auth
-from functools import wraps
-from flask import session, jsonify
+# Expose decorators from auth.auth
+from .auth import require_login, require_admin
 
-def require_login(f):
-    """
-    Decorator to require authentication
-    Use this decorator on routes that need authentication
-    """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            logger.warning("❌ Unauthorized access attempt")
-            return jsonify({'error': 'Authentication required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
 
+@auth_bp.route('/users', methods=['GET'])
+@require_login
+@require_admin
+def list_users():
+    users = database.list_users()
+    return jsonify({'success': True, 'users': users})
+
+
+@auth_bp.route('/users/<int:user_id>/role', methods=['PUT'])
+@require_login
+@require_admin
+def set_role(user_id):
+    role = (request.json or {}).get('role', 'user')
+    database.set_user_role(user_id, role)
+    return jsonify({'success': True})
+
+
+@auth_bp.route('/users/<int:user_id>/active', methods=['PUT'])
+@require_login
+@require_admin
+def set_active(user_id):
+    is_active = bool((request.json or {}).get('is_active', True))
+    database.set_user_active(user_id, is_active)
+    return jsonify({'success': True})

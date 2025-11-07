@@ -19,16 +19,12 @@ pkill -f "app.py" 2>/dev/null || true
 lsof -ti:5001 | xargs kill -9 2>/dev/null || true
 sleep 2
 
-# Start Flask app
-cd "$SCRIPT_DIR/lease_application"
-echo "📍 Application directory: $(pwd)"
-
 # Ensure logs directory exists
-mkdir -p logs
+mkdir -p "$SCRIPT_DIR/lease_application/logs"
 
 # Start Flask application
 echo "🚀 Starting Flask application..."
-python3 app.py > logs/lease_app.log 2>&1 &
+python3 -m lease_application.app > "$SCRIPT_DIR/lease_application/logs/lease_app.log" 2>&1 &
 FLASK_PID=$!
 echo "✅ Flask app started (PID: $FLASK_PID)"
 
@@ -65,13 +61,12 @@ echo "   📊 Application Ready!"
 echo "══════════════════════════════════════════════════════════════"
 echo ""
 echo "🔗 Application URL: http://localhost:5001"
-echo "📝 Login Page: http://localhost:5001/login.html"
-echo "📊 Dashboard: http://localhost:5001/dashboard.html"
-echo "📄 Logs: $(pwd)/logs/lease_app.log"
+echo "📝 Login Page:      http://localhost:5001/login.html"
+echo "📊 Dashboard:       http://localhost:5001/dashboard.html"
+echo "📄 Logs:            $SCRIPT_DIR/lease_application/logs/lease_app.log"
 echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""
 
 # Tail logs
-tail -f logs/lease_app.log
-
+tail -f "$SCRIPT_DIR/lease_application/logs/lease_app.log"

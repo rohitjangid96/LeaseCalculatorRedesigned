@@ -6,7 +6,7 @@ Lines 712-826 from VBA Code
 
 from typing import Optional, Dict, Tuple, List
 from datetime import date
-from lease_accounting.core.models import LeaseData, PaymentScheduleRow
+from .models import LeaseData, PaymentScheduleRow
 
 
 def process_lease_modifications(lease_data: LeaseData, schedule: List[PaymentScheduleRow],

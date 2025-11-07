@@ -1,4 +1,4 @@
-    <script>
+<script>
         let currentLeaseId = null;
         let leasesData = {}; // Store lease data for quick lookup
 
@@ -738,11 +738,11 @@
             // Download with timestamp
             const timestamp = today.toISOString().split('T')[0].replace(/-/g, '');
             const leaseId = document.getElementById('leaseSelect').value;
-            const filename = `Lease_${leaseId}_${timestamp}.xlsx`;
-            XLSX.writeFile(wb, filename);
-            
-            alert('✅ Enhanced Excel report downloaded!\n\nFile: ' + filename + '\n\nContains:\n• Professional summary with metadata\n• Amortization schedule\n• Journal entries\n• Timestamped filename');
-        }
+    const filename = `Lease_${leaseId}_${timestamp}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    
+    showModal('Success', '✅ Enhanced Excel report downloaded!\n\nFile: ' + filename + '\n\nContains:\n• Professional summary with metadata\n• Amortization schedule\n• Journal entries\n• Timestamped filename');
+}
 
         async function logout() {
             try {
@@ -778,13 +778,13 @@
             document.getElementById('emailModal').style.display = 'none';
         }
         
-        async function sendReportEmail() {
-            const toEmail = document.getElementById('recipientEmail').value.trim();
-            if (!toEmail || !toEmail.match(/^\S+@\S+\.\S+$/)) {
-                alert('❌ Please enter a valid recipient email');
-                return;
-            }
-            hideEmailModal();
+async function sendReportEmail() {
+    const toEmail = document.getElementById('recipientEmail').value.trim();
+    if (!toEmail || !toEmail.match(/^\S+@\S+\.\S+$/)) {
+        showModal('Error', '❌ Please enter a valid recipient email');
+        return;
+    }
+    hideEmailModal();
             
             try {
                 // Generate Excel file using same logic as exportToExcel
@@ -887,15 +887,57 @@
                     credentials: 'include'
                 });
                 
-                const result = await response.json();
-                
-                if (result.success) {
-                    alert('✅ Report sent to ' + toEmail + '!');
-                } else {
-                    alert('❌ Failed to send: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('❌ Error sending email: ' + error.message);
-            }
+        const result = await response.json();
+        
+        if (result.success) {
+            showModal('Success', '✅ Report sent to ' + toEmail + '!');
+        } else {
+            showModal('Error', '❌ Failed to send: ' + (result.error || 'Unknown error'));
         }
+    } catch (error) {
+        showModal('Error', '❌ Error sending email: ' + error.message);
+    }
+}
     </script>
+
+</final_file_content>
+
+IMPORTANT: For any future changes to this file, use the final_file_content shown above as your reference. This content reflects the current state of the file, including any auto-formatting (e.g., if you used single quotes but the formatter converted them to double quotes). Always base your SEARCH/REPLACE operations on this final version to ensure accuracy.
+
+<environment_details>
+# Visual Studio Code Visible Files
+lease_application/frontend/static/js/calculate_base.js
+
+# Visual Studio Code Open Tabs
+lease_application/auth/__init__.py
+lease_application/app.py
+lease_application/frontend/templates/dashboard.html
+lease_application/frontend/static/js/login.js
+lease_application/frontend/templates/login.html
+lease_application/frontend/templates/admin.html
+lease_application/frontend/templates/header.html
+lease_application/frontend/static/css/header.css
+lease_application/frontend/templates/lease_form.html
+lease_application/api.py
+lease_application/database.py
+lease_application/frontend/static/css/common.css
+lease_application/frontend/static/js/auth.js
+lease_application/frontend/static/js/admin.js
+lease_application/frontend/static/js/calculate.js
+lease_application/frontend/static/js/dashboard.js
+lease_application/frontend/static/js/form.js
+lease_application/frontend/static/js/consolidate.js
+lease_application/frontend/static/js/calculate_base.js
+
+# Actively Running Terminals
+## Original command: `./start.sh`
+
+# Current Time
+07/11/2025, 2:31:11 pm (Asia/Calcutta, UTC+5.5:00)
+
+# Context Window Usage
+786,310 / 1,048.576K tokens used (75%)
+
+# Current Mode
+ACT MODE
+</environment_details>

@@ -13,6 +13,7 @@ class Config:
     """Base configuration"""
     SECRET_KEY = os.environ.get('SECRET_KEY', 'lease-management-secret-key-change-in-production')
     DATABASE_PATH = BASE_DIR / 'lease_management.db'
+    DOC_UPLOAD_FOLDER = BASE_DIR / 'lease_documents'
     LOG_DIR = BASE_DIR / 'logs'
     
     # Flask settings
@@ -29,6 +30,13 @@ class Config:
     # Logging
     LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
     LOG_BACKUP_COUNT = 5
+
+    # Email (SMTP)
+    SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+    SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+    SMTP_USERNAME = os.environ.get('SMTP_USERNAME', '')
+    SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+    SMTP_FROM = os.environ.get('SMTP_FROM', 'no-reply@example.com')
 
 
 class DevelopmentConfig(Config):

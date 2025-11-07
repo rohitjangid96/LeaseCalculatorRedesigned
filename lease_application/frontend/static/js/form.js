@@ -5,12 +5,15 @@
 
 // Get lease ID from URL if editing
 let currentLeaseId = null;
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    if (!await requireAuth()) { return; }
+    updateUserDisplay();
     const urlParams = new URLSearchParams(window.location.search);
     const leaseId = urlParams.get('id');
-    if (leaseId) {
+    if (leaseId && !isNaN(leaseId)) {
         currentLeaseId = parseInt(leaseId);
         loadLeaseData(currentLeaseId);
+        loadDocuments(currentLeaseId); // Load documents for the lease
     }
 });
 
@@ -54,6 +57,377 @@ function manualInput() {
     }
 }
 
+// --- Global State for PDF.js ---
+let pdfUrl = null;
+let highlightData = []; // Stores the highlights from the API
+let pdfDocument = null; // Stores the PDFJS document object
+let currentScale = 1.5; // Current zoom scale
+let renderedPages = []; // Store rendered page info for re-rendering
+let isReviewMode = false; // Review mode state
+let fieldTypeColors = {}; // Field type color mapping
+let fieldHighlightMap = {}; // Maps form field names to their highlights
+let fileFromExtraction = null; // To hold the file from AI extraction
+// --- Maker-Checker: State ---
+// currentLeaseId is declared at top of file; do not redeclare here
+let currentUserRole = 'user';
+
+async function initWorkflowState() {
+    try {
+        const user = await getCurrentUser();
+        if (user && user.role) currentUserRole = user.role;
+    } catch (e) {}
+    // Try to read lease id from URL or localStorage
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('id')) currentLeaseId = parseInt(params.get('id'), 10);
+    if (!currentLeaseId) {
+        const ls = localStorage.getItem('currentLeaseId');
+        if (ls) currentLeaseId = parseInt(ls, 10);
+    }
+    updateWorkflowButtons('draft');
+}
+
+function setCurrentLeaseId(id) {
+    currentLeaseId = id;
+    if (id) localStorage.setItem('currentLeaseId', String(id));
+}
+
+function updateWorkflowButtons(status) {
+    const submitBtn = document.getElementById('submitForReviewBtn');
+    const approveBtn = document.getElementById('approveLeaseBtn');
+    const rejectBtn = document.getElementById('rejectLeaseBtn');
+    const submitLeaseBtn = document.getElementById('submitLeaseBtn');
+
+    if (!submitBtn || !approveBtn || !rejectBtn || !submitLeaseBtn) return;
+
+    const isReviewer = currentUserRole === 'admin' || currentUserRole === 'reviewer';
+
+    if (isReviewer) {
+        submitBtn.style.display = 'none';
+        submitLeaseBtn.style.display = (status === 'draft') ? 'inline-block' : 'none';
+    } else {
+        submitBtn.style.display = (status === 'draft') ? 'inline-block' : 'none';
+        submitLeaseBtn.style.display = 'none';
+    }
+
+    approveBtn.style.display = (isReviewer && status === 'submitted') ? 'inline-block' : 'none';
+    rejectBtn.style.display = (isReviewer && status === 'submitted') ? 'inline-block' : 'none';
+}
+
+async function submitLeaseForReview() {
+    // First, save the current data as a draft.
+    // The saveDraft function handles both creating and updating.
+    await saveDraft();
+
+    // If after saving, we still don't have a lease ID, we can't submit.
+    if (!currentLeaseId) {
+        showModal('Error', 'Could not save the lease. Please try saving the draft manually before submitting.');
+        return;
+    }
+
+    // Now, proceed with submitting for review.
+    try {
+        const res = await fetch(`/api/leases/${currentLeaseId}/submit`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                request_type: document.getElementById('approvalRequestType').value,
+                comments: document.getElementById('approvalComments').value
+            })
+        });
+        const j = await res.json();
+        if (j.success) {
+            updateWorkflowButtons('submitted');
+            const fs = document.getElementById('formStatus');
+            if (fs) fs.textContent = 'Submitted';
+            closeSubmitApprovalModal();
+            showModal('Success', 'Lease submitted for review successfully!');
+            // Redirect to dashboard after successful submission
+            window.location.href = '/dashboard.html';
+        } else {
+            showModal('Error', j.error || 'Failed to submit for review.');
+        }
+    } catch (error) {
+        console.error('Error submitting for review:', error);
+        showModal('Error', 'An error occurred while submitting for review.');
+    }
+}
+
+function openSubmitApprovalModal() {
+    const modal = document.getElementById('submitApprovalModal');
+    if (modal) {
+        modal.style.display = 'block';
+    }
+}
+
+function closeSubmitApprovalModal() {
+    const modal = document.getElementById('submitApprovalModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function submitLease() {
+    await saveDraft();
+    if (!currentLeaseId) {
+        showModal('Error', 'Could not save the lease. Please try saving the draft manually before submitting.');
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/leases/${currentLeaseId}/approve`, { method: 'POST', credentials: 'include' });
+        const j = await res.json();
+        if (j.success) {
+            updateWorkflowButtons('approved');
+            const fs = document.getElementById('formStatus');
+            if (fs) fs.textContent = 'Approved';
+            showModal('Success', 'Lease submitted and approved successfully!');
+            window.location.href = '/dashboard.html';
+        } else {
+            showModal('Error', j.error || 'Failed to submit lease.');
+        }
+    } catch (error) {
+        console.error('Error submitting lease:', error);
+        showModal('Error', 'An error occurred while submitting the lease.');
+    }
+}
+
+async function approveCurrentLease() {
+    if (!currentLeaseId) return;
+    const res = await fetch(`/api/leases/${currentLeaseId}/approve`, {method:'POST', credentials:'include'});
+    const j = await res.json();
+        if (j.success) {
+            updateWorkflowButtons('approved');
+            const fs = document.getElementById('formStatus');
+            if (fs) fs.textContent = 'Approved';
+            showModal('Success', 'Lease approved');
+        } else {
+            showModal('Error', j.error || 'Failed to approve');
+        }
+    }
+
+async function rejectCurrentLease() {
+    if (!currentLeaseId) return;
+    openRejectionModal();
+}
+
+function openRejectionModal() {
+    const modal = document.getElementById('rejectionModal');
+    if (modal) {
+        modal.style.display = 'block';
+    }
+}
+
+function closeRejectionModal() {
+    const modal = document.getElementById('rejectionModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function submitRejection() {
+    if (!currentLeaseId) return;
+    const reason = document.getElementById('rejectionReason').value.trim();
+    if (!reason) {
+        showModal('Error', 'Please provide a reason for rejection.');
+        return;
+    }
+
+    const res = await fetch(`/api/leases/${currentLeaseId}/reject`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+    });
+
+    const j = await res.json();
+    if (j.success) {
+        updateWorkflowButtons('rejected');
+        const fs = document.getElementById('formStatus');
+        if (fs) fs.textContent = 'Rejected';
+        closeRejectionModal();
+        showModal('Success', 'Lease rejected');
+    } else {
+        showModal('Error', j.error || 'Failed to reject');
+    }
+}
+
+// Highlight Category Management (similar to asset classes)
+function loadHighlightCategoriesFromStorage() {
+    const stored = localStorage.getItem('highlightCategories');
+    if (stored) {
+        return JSON.parse(stored);
+    }
+    // Default categories
+    return [
+        { id: 'date', fields: ['lease_start_date', 'lease_end_date', 'end_date', 'agreement_date', 'rent_agreement_date', 
+                'termination_date', 'first_payment_date', 'escalation_start_date', 'transition_date',
+                'posting_date', 'renewal_start_date', 'renewal_end_date'], color: 'purple', name: 'Dates' },
+        { id: 'amount', fields: ['rental_1', 'rental_2', 'rental_amount', 'security_deposit', 'lease_incentive', 
+                'initial_direct_expenditure', 'fair_value', 'purchase_option_price', 'aro_initial_estimate'], color: 'green', name: 'Monetary' },
+        { id: 'description', fields: ['description', 'agreement_title', 'asset_title', 'asset_class', 'company_name', 'counterparty'], color: 'blue', name: 'Description' },
+        { id: 'boolean', fields: ['finance_lease', 'sublease', 'bargain_purchase', 'title_transfer', 'practical_expedient',
+                'short_term_ifrs', 'manual_adj', 'related_party', 'has_renewal_option', 'has_termination_option',
+                'has_purchase_option', 'has_security_deposit', 'has_aro'], color: 'orange', name: 'Boolean/Flags' },
+        { id: 'text', fields: ['currency', 'asset_id_code', 'asset_location', 'day_of_month', 'pay_day_of_month'], color: 'gray', name: 'Text' },
+        { id: 'location', fields: ['asset_location', 'counterparty'], color: 'pink', name: 'Location' },
+        { id: 'term', fields: ['tenure', 'tenure_months', 'frequency_months', 'payment_interval', 'compound_months', 
+                'esc_freq_months', 'escalation_frequency'], color: 'teal', name: 'Term/Frequency' },
+        { id: 'rate', fields: ['borrowing_rate', 'ibr', 'escalation_percent', 'escalation_percentage', 'discount_rate'], color: 'indigo', name: 'Rates/Percentages' }
+    ];
+}
+
+function saveHighlightCategoriesToStorage(categories) {
+    localStorage.setItem('highlightCategories', JSON.stringify(categories));
+}
+
+let highlightCategories = loadHighlightCategoriesFromStorage();
+
+// Convert to FIELD_TYPES format for backward compatibility
+const FIELD_TYPES = {};
+highlightCategories.forEach(cat => {
+    FIELD_TYPES[cat.id] = {
+        fields: cat.fields,
+        color: cat.color,
+        name: cat.name
+    };
+});
+
+// Words to exclude from boolean field searches (too generic)
+const EXCLUDED_BOOLEAN_SEARCH_TERMS = ['no', 'yes', 'true', 'false', '1', '0'];
+
+// Load PDF.js from local file first, then CDN fallback
+function loadPDFJS() {
+    if (typeof pdfjsLib !== 'undefined') {
+        // Already loaded, configure worker if needed
+        if (typeof pdfjsLib.GlobalWorkerOptions !== 'undefined') {
+            // Try local worker first
+            const baseUrl = window.location.origin;
+            pdfjsLib.GlobalWorkerOptions.workerSrc = baseUrl + '/static/js/pdf.worker.min.js';
+        }
+        return Promise.resolve();
+    }
+    
+    // Check if already loading
+    if (window._pdfjsLoading) {
+        return window._pdfjsLoading;
+    }
+    
+    return window._pdfjsLoading = new Promise((resolve, reject) => {
+        // Try local file first, then CDN sources for reliability
+        const baseUrl = window.location.origin;
+        const cdnUrls = [
+            baseUrl + '/static/js/pdf.min.js',  // Local file first
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+            'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js',
+            'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js'
+        ];
+        
+        const workerUrls = [
+            baseUrl + '/static/js/pdf.worker.min.js',  // Local worker first
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+            'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js',
+            'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+        ];
+        
+        let currentIndex = 0;
+        
+        function tryLoad(index) {
+            if (index >= cdnUrls.length) {
+                reject(new Error('Failed to load PDF.js from all sources'));
+                window._pdfjsLoading = null;
+                return;
+            }
+            
+            const script = document.createElement('script');
+            script.src = cdnUrls[index];
+            script.crossOrigin = 'anonymous';
+            
+            script.onload = () => {
+                // Load worker
+                if (typeof pdfjsLib !== 'undefined') {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrls[index];
+                    const source = index === 0 ? 'local file' : `CDN (source ${index})`;
+                    console.log(`✅ PDF.js loaded from ${source}`);
+                    window._pdfjsLoading = null;
+                    resolve();
+                } else {
+                    // Try next source
+                    tryLoad(index + 1);
+                }
+            };
+            
+            script.onerror = () => {
+                const source = index === 0 ? 'local file' : `CDN ${index}`;
+                console.warn(`Failed to load PDF.js from ${source}, trying next...`);
+                // Try next source
+                tryLoad(index + 1);
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        tryLoad(0);
+    });
+}
+
+// Initialize PDF.js on page load (non-blocking)
+setTimeout(() => {
+    loadPDFJS().catch(err => {
+        console.warn('PDF.js not loaded on page load (will retry when needed):', err.message);
+    });
+}, 100);
+
+// --- PDF Panel Resizer ---
+function setupPDFResizer() {
+    const resizer = document.getElementById('pdfResizer');
+    const pdfPanel = document.getElementById('pdfPanel');
+    
+    if (!resizer || !pdfPanel) return;
+    
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+    
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = pdfPanel.offsetWidth;
+        resizer.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        
+        const width = startWidth - (e.clientX - startX);
+        const minWidth = 300;
+        const maxWidth = window.innerWidth * 0.8;
+        
+        if (width >= minWidth && width <= maxWidth) {
+            pdfPanel.style.width = width + 'px';
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            resizer.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+// Setup resizer when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupPDFResizer);
+} else {
+    setupPDFResizer();
+}
+
 // Upload Contract Mode - Show PDF Viewer and trigger AI extraction
 function uploadContract() {
     const pdfPanel = document.getElementById('pdfPanel');
@@ -81,7 +455,7 @@ function uploadContract() {
         pdfInput.style.display = 'none';
         pdfInput.onchange = function(e) {
             if (e.target.files && e.target.files.length > 0) {
-                extractAndPopulateForm(e.target.files[0]);
+                uploadAndExtract(e.target.files[0]);
             }
         };
         document.body.appendChild(pdfInput);
@@ -89,6 +463,1124 @@ function uploadContract() {
     
     // Trigger file upload dialog
     pdfInput.click();
+}
+
+// --- New Upload and Extraction Function (Replaces extractAndPopulateForm) ---
+async function uploadAndExtract(file) {
+    fileFromExtraction = file; // Store the file globally
+    console.log('📥 Starting extraction for file:', file.name);
+    
+    if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+        showModal('Error', 'Please select a PDF file');
+        return;
+    }
+    
+    // Check for stored API key first
+    let storedApiKey = localStorage.getItem('google_ai_api_key');
+    
+    // Default API key (user provided)
+    if (!storedApiKey || !storedApiKey.trim()) {
+        storedApiKey = 'AIzaSyCm96pgKZ1tXA73_2m8XXDbj04WCpYp76g';
+        localStorage.setItem('google_ai_api_key', storedApiKey);
+        console.log('✅ Using default API key and storing in localStorage');
+    }
+    
+    let apiKey = storedApiKey.trim();
+    console.log('✅ Using API key from localStorage');
+    
+    // Show extraction loader with progress
+    showExtractionLoader();
+    updateLoaderStep(0); // Reading PDF
+    
+    // Display loading status
+    document.getElementById('formStatus').textContent = 'AI Extraction in Progress...';
+    const pdfPlaceholder = document.getElementById('pdfPlaceholder');
+    const pdfViewerContainer = document.getElementById('pdfViewerContainer');
+    
+    if (pdfPlaceholder) pdfPlaceholder.style.display = 'block';
+    if (pdfViewerContainer) pdfViewerContainer.style.display = 'none';
+    
+    // Show loading indicator on button
+    const uploadBtn = document.getElementById('uploadBtn');
+    if (uploadBtn) {
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Extracting...';
+    }
+    
+    try {
+        updateLoaderStep(1); // Extracting Text
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        // Add API key if provided
+        if (apiKey && apiKey.trim()) {
+            formData.append('api_key', apiKey.trim());
+        }
+        
+        updateLoaderStep(2); // AI Processing
+        
+        const response = await fetch('/api/upload_and_extract', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            let errorMsg = `Server error (${response.status})`;
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorMsg = errorJson.error || errorMsg;
+            } catch (e) {
+                errorMsg = errorText || errorMsg;
+            }
+            hideExtractionLoader();
+            showModal('Error', `❌ Error: ${errorMsg}`);
+            if (uploadBtn) {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload Contract – AI Extraction';
+            }
+            return;
+        }
+
+        const result = await response.json();
+        
+        if (result.success) {
+            updateLoaderStep(3); // Populating Form
+            
+            // 1. Store global state
+            pdfUrl = result.pdf_url;
+            highlightData = result.highlights || [];
+            
+            // Build field highlight mapping (extraction field -> form field -> highlights)
+            fieldHighlightMap = {};
+            highlightData.forEach(h => {
+                const extractionField = h.field;
+                // Find which form field this maps to
+                let formFieldName = fieldNameMapping[extractionField] || extractionField;
+                
+                // The mapping should already work, but let's ensure it's correct
+                // formFieldName is already set above from fieldNameMapping
+                
+                // If still no match, use extraction field name directly
+                if (!formFieldName) {
+                    formFieldName = extractionField;
+                }
+                
+                if (!fieldHighlightMap[formFieldName]) {
+                    fieldHighlightMap[formFieldName] = [];
+                }
+                fieldHighlightMap[formFieldName].push(h);
+                
+                console.log(`📌 Mapped highlight: ${extractionField} → ${formFieldName} (${h.page})`);
+            });
+            
+            console.log(`✅ Built highlight map for ${Object.keys(fieldHighlightMap).length} form fields`);
+            
+            // 2. Populate form with extracted data
+            if (result.data) {
+                populateForm(result.data);
+            }
+            
+            // 3. Add highlight icons to populated fields
+            addHighlightIcons();
+            
+            // 3. Load PDF.js if needed and render PDF and highlights
+            // Make PDF rendering optional - don't fail if PDF.js doesn't load
+            let pdfRendered = false;
+            try {
+                await loadPDFJS();
+                if (typeof pdfjsLib !== 'undefined') {
+                    await renderPDFAndHighlights(result.pdf_url, highlightData);
+                    // Cache review context (lease -> pdf + highlights)
+                    if (currentLeaseId && result.pdf_url && Array.isArray(highlightData)) {
+                        try {
+                            localStorage.setItem(`lease_review_${currentLeaseId}`, JSON.stringify({ pdfUrl: result.pdf_url, highlights: highlightData }));
+                        } catch (e) {}
+                    }
+                    pdfRendered = true;
+                } else {
+                    throw new Error('PDF.js library not available');
+                }
+            } catch (pdfError) {
+                console.warn('PDF.js rendering failed (continuing without PDF view):', pdfError);
+                // Show success message even if PDF rendering fails
+                if (pdfPlaceholder) {
+                    pdfPlaceholder.innerHTML = `
+                        <p style="color: #27ae60; font-weight: 600;">✅ PDF Processed Successfully</p>
+                        <p style="color: #666; font-size: 14px;">Form populated with extracted data.</p>
+                        <p style="color: #999; font-size: 12px; margin-top: 10px;">PDF viewer unavailable (${pdfError.message})</p>
+                    `;
+                    pdfPlaceholder.style.display = 'block';
+                }
+            }
+            
+            // Update UI state
+            document.getElementById('formStatus').textContent = 'Draft (AI Extracted)';
+            if (pdfRendered) {
+                if (pdfPlaceholder) pdfPlaceholder.style.display = 'none';
+                if (pdfViewerContainer) pdfViewerContainer.style.display = 'block';
+                
+                // Show Review Mode button
+                const reviewModeBtn = document.getElementById('reviewModeBtn');
+                if (reviewModeBtn) {
+                    reviewModeBtn.style.display = 'inline-block';
+                }
+                
+                // Setup review mode
+                setupReviewMode();
+            }
+
+        } else {
+            hideExtractionLoader();
+            showModal('Error', `Extraction failed: ${result.error || 'Unknown error'}`);
+            document.getElementById('formStatus').textContent = 'Draft (Error)';
+        }
+        
+        hideExtractionLoader();
+        
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload Contract – AI Extraction';
+        }
+    } catch (error) {
+        console.error('Upload and Extraction error:', error);
+        hideExtractionLoader();
+        showModal('Error', 'Failed to process the document. Check console for details.');
+        document.getElementById('formStatus').textContent = 'Draft (Error)';
+        if (uploadBtn) {
+            uploadBtn.disabled = false;
+            uploadBtn.textContent = 'Upload Contract – AI Extraction';
+        }
+    }
+}
+
+// Helper function to update loader step
+function updateLoaderStep(stepIndex) {
+    const loader = document.getElementById('extractionLoader');
+    if (loader) {
+        const steps = loader.querySelectorAll('.step');
+        steps.forEach((step, index) => {
+            if (index <= stepIndex) {
+                step.classList.add('active');
+            } else {
+                step.classList.remove('active');
+            }
+        });
+    }
+}
+
+// --- PDF Rendering and Highlighting Functions ---
+
+async function renderPDFAndHighlights(url, highlights) {
+    const pdfScrollArea = document.getElementById('pdfScrollArea');
+    if (!pdfScrollArea) {
+        console.error('PDF scroll area not found');
+        return;
+    }
+    
+    pdfScrollArea.innerHTML = ''; // Clear previous content
+    renderedPages = []; // Clear stored pages
+
+    if (typeof pdfjsLib === 'undefined') {
+        console.error("PDF.js is not available.");
+        return;
+    }
+    
+    try {
+        // Load the PDF Document
+        const loadingTask = pdfjsLib.getDocument(url);
+        pdfDocument = await loadingTask.promise;
+        
+        console.log(`📄 PDF loaded: ${pdfDocument.numPages} pages`);
+        
+        // Calculate optimal scale for native-like experience (fit width)
+        const containerWidth = pdfScrollArea.clientWidth - 40; // Account for padding
+        const firstPage = await pdfDocument.getPage(1);
+        const firstViewport = firstPage.getViewport({ scale: 1.0 });
+        const optimalScale = containerWidth / firstViewport.width;
+        currentScale = Math.max(1.0, Math.min(2.5, optimalScale)); // Clamp between 100% and 250%
+        
+        updateZoomDisplay();
+        setupZoomControls();
+        
+        // Log extracted text and highlights for comparison
+        logExtractionComparison(highlights);
+        
+        // Render all pages
+        for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+            const page = await pdfDocument.getPage(pageNum);
+            
+            // 1. Create wrapper and canvas for PDF.js
+            const pageWrapper = document.createElement('div');
+            pageWrapper.className = 'pdf-page-wrapper';
+            pageWrapper.id = `pdf-page-${pageNum}`;
+            pageWrapper.setAttribute('data-page', pageNum);
+            pageWrapper.dataset.page = pageNum; // For easier access
+            
+            const canvas = document.createElement('canvas');
+            pageWrapper.appendChild(canvas);
+            
+            // 2. Render the page on canvas with current scale
+            const viewport = page.getViewport({ scale: currentScale });
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            // Enable high-DPI rendering for crisp text
+            const outputScale = window.devicePixelRatio || 1;
+            canvas.width = viewport.width * outputScale;
+            canvas.height = viewport.height * outputScale;
+            context.scale(outputScale, outputScale);
+            canvas.style.width = viewport.width + 'px';
+            canvas.style.height = viewport.height + 'px';
+
+            const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+            };
+            await page.render(renderContext).promise;
+
+            // 3. Create highlight overlay - ensure it matches canvas size exactly
+            const highlightOverlay = document.createElement('div');
+            highlightOverlay.className = 'highlight-overlay';
+            highlightOverlay.style.width = viewport.width + 'px';
+            highlightOverlay.style.height = viewport.height + 'px';
+            pageWrapper.appendChild(highlightOverlay);
+
+            // 4. Draw highlights for this page
+            drawHighlightsOnPage(highlightOverlay, pageNum, viewport.width, viewport.height, page.view, highlights);
+            
+            // Store page info for re-rendering
+            renderedPages.push({
+                pageNum,
+                page,
+                pageWrapper,
+                canvas,
+                highlightOverlay,
+                viewport
+            });
+            
+            pdfScrollArea.appendChild(pageWrapper);
+        }
+        
+        // 5. Setup interactivity
+        setupHighlightInteractivity();
+        
+        // 6. Initialize highlight navigation
+        initializeHighlightNavigation();
+        
+        console.log('✅ PDF rendered with highlights at scale:', currentScale.toFixed(2));
+    } catch (error) {
+        console.error('Error rendering PDF:', error);
+        pdfScrollArea.innerHTML = `<p style="color: red; padding: 20px;">Error loading PDF: ${error.message}</p>`;
+    }
+}
+
+// Log extracted text vs highlighted positions for comparison
+function logExtractionComparison(highlights) {
+    console.group('📊 Extraction vs Highlight Comparison');
+    console.log('Total highlights found:', highlights.length);
+    
+    // Group by field
+    const highlightsByField = {};
+    highlights.forEach(h => {
+        if (!highlightsByField[h.field]) {
+            highlightsByField[h.field] = [];
+        }
+        highlightsByField[h.field].push(h);
+    });
+    
+    console.log('\n📋 Highlights by Field:');
+    for (const [field, fieldHighlights] of Object.entries(highlightsByField)) {
+        console.group(`  ${field} (${fieldHighlights.length} matches)`);
+        fieldHighlights.forEach((h, idx) => {
+            console.log(`  Match ${idx + 1}:`, {
+                text: h.text,
+                page: h.page,
+                bbox: h.bbox,
+                position: `[${h.bbox.map(v => v.toFixed(1)).join(', ')}]`
+            });
+        });
+        console.groupEnd();
+    }
+    
+    console.log('\n🔍 Summary:');
+    console.table(
+        Object.entries(highlightsByField).map(([field, highlights]) => ({
+            Field: field,
+            'Matches': highlights.length,
+            'Pages': [...new Set(highlights.map(h => h.page))].join(', '),
+            'Sample Text': highlights[0]?.text?.substring(0, 30) || 'N/A'
+        }))
+    );
+    
+    console.groupEnd();
+}
+
+// Zoom controls
+function setupZoomControls() {
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const fitWidthBtn = document.getElementById('fitWidthBtn');
+    const fitPageBtn = document.getElementById('fitPageBtn');
+    const downloadBtn = document.getElementById('downloadPdfBtn');
+    
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', () => {
+            currentScale = Math.min(3.0, currentScale + 0.25);
+            reRenderPDF();
+        });
+    }
+    
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', () => {
+            currentScale = Math.max(0.5, currentScale - 0.25);
+            reRenderPDF();
+        });
+    }
+    
+    if (fitWidthBtn) {
+        fitWidthBtn.addEventListener('click', () => {
+            if (pdfDocument && renderedPages.length > 0) {
+                const containerWidth = document.getElementById('pdfScrollArea').clientWidth - 40;
+                const firstPage = renderedPages[0].page;
+                const firstViewport = firstPage.getViewport({ scale: 1.0 });
+                currentScale = containerWidth / firstViewport.width;
+                reRenderPDF();
+            }
+        });
+    }
+    
+    if (fitPageBtn) {
+        fitPageBtn.addEventListener('click', () => {
+            currentScale = 1.5; // Default scale
+            reRenderPDF();
+        });
+    }
+    
+    if (downloadBtn && pdfUrl) {
+        downloadBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = pdfUrl;
+            link.download = 'extracted_lease_document.pdf';
+            link.click();
+        });
+    }
+    
+    // Highlight navigation buttons
+    if (prevHighlightBtn) {
+        prevHighlightBtn.addEventListener('click', () => {
+            navigateHighlight(-1); // Previous
+        });
+    }
+    
+    if (nextHighlightBtn) {
+        nextHighlightBtn.addEventListener('click', () => {
+            navigateHighlight(1); // Next
+        });
+    }
+    
+    // Initialize highlight navigation after PDF is rendered
+    initializeHighlightNavigation();
+}
+
+/**
+ * Initialize highlight navigation - build array of all highlights in order
+ */
+function initializeHighlightNavigation() {
+    allHighlightBoxes = [];
+    const allHighlights = document.querySelectorAll('.highlight-box');
+    
+    // Convert to array and sort by page, then by position
+    const highlightsArray = Array.from(allHighlights);
+    
+    // Sort by page number, then by top position
+    highlightsArray.sort((a, b) => {
+        const pageWrapperA = a.closest('.pdf-page-wrapper');
+        const pageWrapperB = b.closest('.pdf-page-wrapper');
+        const pageA = parseInt(pageWrapperA?.dataset.page || pageWrapperA?.getAttribute('data-page') || '0');
+        const pageB = parseInt(pageWrapperB?.dataset.page || pageWrapperB?.getAttribute('data-page') || '0');
+        if (pageA !== pageB) return pageA - pageB;
+        
+        // Get absolute position within PDF scroll area
+        const topA = pageWrapperA ? pageWrapperA.offsetTop + a.offsetTop : a.offsetTop;
+        const topB = pageWrapperB ? pageWrapperB.offsetTop + b.offsetTop : b.offsetTop;
+        return topA - topB;
+    });
+    
+    allHighlightBoxes = highlightsArray;
+    currentHighlightIndex = -1;
+    
+    console.log(`✅ Initialized highlight navigation with ${allHighlightBoxes.length} highlights`);
+}
+
+/**
+ * Navigate to previous/next highlight
+ */
+function navigateHighlight(direction) {
+    if (allHighlightBoxes.length === 0) {
+        console.warn('No highlights available for navigation');
+        return;
+    }
+    
+    // Clear all active highlights
+    document.querySelectorAll('.highlight-box').forEach(h => h.classList.remove('active'));
+    document.querySelectorAll('.form-group').forEach(g => g.classList.remove('review-highlighted'));
+    
+    // Move to next/previous highlight
+    currentHighlightIndex += direction;
+    
+    // Wrap around
+    if (currentHighlightIndex < 0) {
+        currentHighlightIndex = allHighlightBoxes.length - 1;
+    } else if (currentHighlightIndex >= allHighlightBoxes.length) {
+        currentHighlightIndex = 0;
+    }
+    
+    // Get the current highlight
+    const currentHighlight = allHighlightBoxes[currentHighlightIndex];
+    if (!currentHighlight) return;
+    
+    // Activate this highlight
+    currentHighlight.classList.add('active');
+    
+    // Scroll to this highlight
+    const pdfScrollArea = document.getElementById('pdfScrollArea');
+    if (pdfScrollArea) {
+        const highlightTop = currentHighlight.offsetTop;
+        const scrollTop = highlightTop - (pdfScrollArea.clientHeight / 2) + (currentHighlight.offsetHeight / 2);
+        
+        pdfScrollArea.scrollTo({
+            top: Math.max(0, scrollTop),
+            behavior: 'smooth'
+        });
+        
+        // Focus PDF viewer
+        pdfScrollArea.focus();
+    }
+    
+    // Show which highlight we're on
+    console.log(`📍 Highlight ${currentHighlightIndex + 1} of ${allHighlightBoxes.length}`);
+}
+
+function updateZoomDisplay() {
+    const zoomValue = document.getElementById('zoomValue');
+    if (zoomValue) {
+        zoomValue.textContent = Math.round(currentScale * 100) + '%';
+    }
+}
+
+async function reRenderPDF() {
+    if (!pdfDocument || renderedPages.length === 0) return;
+    
+    updateZoomDisplay();
+    
+    // Re-render all pages with new scale
+    for (const pageInfo of renderedPages) {
+        const { page, canvas, highlightOverlay, pageNum } = pageInfo;
+        
+        const viewport = page.getViewport({ scale: currentScale });
+        const context = canvas.getContext('2d');
+        
+        // Clear canvas
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Resize canvas
+        const outputScale = window.devicePixelRatio || 1;
+        canvas.width = viewport.width * outputScale;
+        canvas.height = viewport.height * outputScale;
+        canvas.style.width = viewport.width + 'px';
+        canvas.style.height = viewport.height + 'px';
+        context.scale(outputScale, outputScale);
+        
+        // Re-render
+        const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+        };
+        await page.render(renderContext).promise;
+        
+        // Re-draw highlights - ensure overlay is properly sized
+        highlightOverlay.innerHTML = '';
+        // Set overlay size to match canvas exactly
+        highlightOverlay.style.width = viewport.width + 'px';
+        highlightOverlay.style.height = viewport.height + 'px';
+        drawHighlightsOnPage(highlightOverlay, pageNum, viewport.width, viewport.height, page.view, highlightData);
+    }
+    
+    // Re-initialize highlight navigation after re-rendering
+    initializeHighlightNavigation();
+}
+
+/**
+ * Get field type for a given field name
+ */
+function getFieldType(fieldName) {
+    for (const [type, config] of Object.entries(FIELD_TYPES)) {
+        if (config.fields.includes(fieldName)) {
+            return type;
+        }
+    }
+    return 'text'; // Default
+}
+
+/**
+ * Draws the bounding boxes on the HTML overlay layer with color coding.
+ * @param {HTMLElement} overlay - The highlight-overlay div for the page.
+ * @param {number} pageNum - The current page number.
+ * @param {number} canvasWidth - The rendered width of the canvas in pixels.
+ * @param {number} canvasHeight - The rendered height of the canvas in pixels.
+ * @param {Array<number>} view - The original PDF page size [x, y, width, height] (from pdf.view).
+ * @param {Array<object>} highlights - The list of highlight objects from the API.
+ */
+function drawHighlightsOnPage(overlay, pageNum, canvasWidth, canvasHeight, view, highlights) {
+    // Get the original PDF dimensions (in PDF units, e.g., 72dpi)
+    const pdfWidth = view[2]; // usually 595.3 for A4
+    const pdfHeight = view[3]; // usually 841.9 for A4
+
+    // Ensure overlay matches canvas dimensions exactly
+    if (overlay) {
+        overlay.style.width = canvasWidth + 'px';
+        overlay.style.height = canvasHeight + 'px';
+    }
+
+    const scaleX = canvasWidth / pdfWidth;
+    const scaleY = canvasHeight / pdfHeight;
+    
+    const pageHighlights = highlights.filter(h => h.page === pageNum);
+    
+    pageHighlights.forEach(h => {
+        // h.bbox format: [x0, top, x1, bottom] from pdfplumber (Top-Left Origin)
+        const [x0, top, x1, bottom] = h.bbox; 
+        
+        // Convert pdfplumber coordinates to pixel coordinates
+        const pixelLeft = x0 * scaleX;
+        const pixelTop = top * scaleY;
+        const pixelWidth = (x1 - x0) * scaleX;
+        const pixelHeight = (bottom - top) * scaleY;
+
+        const highlightBox = document.createElement('div');
+        
+        // Get field type and apply color class
+        const fieldType = getFieldType(h.field);
+        highlightBox.className = `highlight-box highlight-type-${fieldType}`;
+        
+        // Get category for dynamic color
+        const category = highlightCategories.find(c => c.id === fieldType);
+        const colorValue = category?.color || FIELD_TYPES[fieldType]?.color || 'gray';
+        
+        // Apply dynamic color
+        const colors = {
+            purple: 'rgba(156, 39, 176, 0.4)',
+            green: 'rgba(76, 175, 80, 0.4)',
+            blue: 'rgba(33, 150, 243, 0.4)',
+            orange: 'rgba(255, 152, 0, 0.4)',
+            gray: 'rgba(158, 158, 158, 0.4)',
+            pink: 'rgba(233, 30, 99, 0.4)',
+            teal: 'rgba(0, 150, 136, 0.4)',
+            indigo: 'rgba(63, 81, 181, 0.4)'
+        };
+        
+        // Check if colorValue is hex (6 chars)
+        let bgColor, borderColor;
+        if (/^[0-9A-Fa-f]{6}$/.test(colorValue)) {
+            const r = parseInt(colorValue.substr(0, 2), 16);
+            const g = parseInt(colorValue.substr(2, 2), 16);
+            const b = parseInt(colorValue.substr(4, 2), 16);
+            bgColor = `rgba(${r}, ${g}, ${b}, 0.4)`;
+            borderColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
+        } else {
+            bgColor = colors[colorValue] || colors.gray;
+            borderColor = colors[colorValue]?.replace('0.4', '0.8') || colors.gray;
+        }
+        
+        // Store the form field name for interactivity
+        highlightBox.dataset.field = h.field;
+        highlightBox.dataset.fieldType = fieldType;
+        
+        highlightBox.style.cssText = `
+            left: ${pixelLeft}px;
+            top: ${pixelTop}px;
+            width: ${pixelWidth}px;
+            height: ${pixelHeight}px;
+            background-color: ${bgColor};
+            border: 2px solid ${borderColor};
+        `;
+        
+        overlay.appendChild(highlightBox);
+    });
+}
+
+// --- Form Population and Interactivity ---
+
+// Field name mapping: AI extracted field names -> Form field names
+const fieldNameMapping = {
+    'end_date': 'lease_end_date',
+    'rental_1': 'rental_amount',
+    'rental_2': 'rental_amount', // Also map rental_2 to rental_amount if needed
+    'borrowing_rate': 'ibr', // Map borrowing_rate to ibr
+    'ibr': 'ibr', // Keep ibr as is
+    'lease_start_date': 'lease_start_date',
+    'first_payment_date': 'first_payment_date',
+    'agreement_date': 'rent_agreement_date',
+    'company_name': 'company_name',
+    'counterparty': 'counterparty',
+    'asset_class': 'asset_class',
+    'asset_id_code': 'asset_id_code',
+    'currency': 'currency',
+    'tenure': 'tenure_months',
+    'frequency_months': 'payment_interval',
+    'day_of_month': 'pay_day_of_month',
+    'escalation_percent': 'escalation_percentage',
+    'escalation_start_date': 'escalation_start_date',
+    'escalation_frequency': 'escalation_frequency',
+    'security_deposit': 'security_deposit_amount_1',
+    'lease_incentive': 'lease_incentive',
+    'initial_direct_expenditure': 'initial_direct_expenditure',
+    'description': 'agreement_title',
+};
+
+function populateForm(data) {
+    const form = document.getElementById('leaseForm');
+    if (!form) {
+        console.error('Form not found');
+        return;
+    }
+    
+    console.log('📝 Populating form with extracted data:', data);
+    
+    for (const fieldName in data) {
+        if (data.hasOwnProperty(fieldName)) {
+            // Skip metadata fields
+            if (fieldName === '_metadata') continue;
+            
+            let formFieldName = fieldName;
+            
+            // Check if field name needs mapping
+            if (fieldNameMapping[fieldName]) {
+                formFieldName = fieldNameMapping[fieldName];
+                console.log(`   ↳ Mapping ${fieldName} → ${formFieldName}`);
+            }
+            
+            const input = form.querySelector(`[name="${formFieldName}"]`);
+            if (input) {
+                let value = data[fieldName];
+                
+                // Skip null, empty, or invalid values
+                if (value === null || value === '' || value === 'null' || value === 'None') {
+                    continue;
+                }
+                
+                // Handle special cases
+                if (fieldName === 'rental_2' && value && data['rental_1']) {
+                    // If rental_2 exists but rental_amount already has rental_1, skip
+                    console.log(`   ⏭️ Skipping rental_2 (already have rental_1)`);
+                    continue;
+                }
+                
+                // Handle different input types
+                if (input.type === 'checkbox') {
+                    input.checked = (value === true || value === 'true' || value === 'Yes' || value === 'yes');
+                } else if (input.tagName === 'SELECT') {
+                    // Try to match value to option
+                    input.value = value;
+                    // Trigger change event for selects that have dependencies
+                    if (input.name === 'rent_frequency') {
+                        input.dispatchEvent(new Event('change'));
+                    }
+                } else {
+                    // Default for text, number, date
+                    input.value = value;
+                }
+                
+                // Trigger change event for fields with dependencies
+                if (input.name === 'lease_start_date' || input.name === 'lease_end_date') {
+                    input.dispatchEvent(new Event('change'));
+                }
+                
+                console.log(`   ✅ Set ${formFieldName} = ${value}`);
+                
+                // Add a class to indicate this field was auto-populated
+                const formGroup = input.closest('.form-group');
+                if (formGroup) {
+                    formGroup.classList.add('extracted-field');
+                }
+            } else {
+                console.log(`   ⚠️ Form field not found: ${formFieldName}`);
+            }
+        }
+    }
+    
+    console.log('✅ Form population complete');
+}
+
+/**
+ * Add highlight icons next to populated fields that have highlights
+ */
+function addHighlightIcons() {
+    const form = document.getElementById('leaseForm');
+    if (!form) return;
+    
+    // Remove existing icons first
+    document.querySelectorAll('.highlight-icon').forEach(icon => icon.remove());
+    
+    let iconsAdded = 0;
+    
+    // Add icons for fields that have highlights
+    for (const [formFieldName, highlights] of Object.entries(fieldHighlightMap)) {
+        if (!highlights || highlights.length === 0) {
+            console.warn(`⚠️ No highlights for field: ${formFieldName}`);
+            continue;
+        }
+        
+        const input = form.querySelector(`[name="${formFieldName}"]`);
+        if (!input) {
+            console.warn(`⚠️ Input not found for field: ${formFieldName}`);
+            continue;
+        }
+        
+        // Skip if field is empty
+        if (!input.value || input.value === '' || input.value === 'null') {
+            console.warn(`⚠️ Field ${formFieldName} is empty, skipping icon`);
+            continue;
+        }
+        
+        const formGroup = input.closest('.form-group');
+        if (!formGroup) continue;
+        
+        // Get field type for color
+        const firstHighlight = highlights[0];
+        const extractionField = firstHighlight.field;
+        const fieldType = getFieldType(extractionField);
+        
+        // Create icon
+        const icon = document.createElement('button');
+        icon.type = 'button';
+        icon.className = 'highlight-icon';
+        icon.dataset.fieldName = formFieldName;
+        icon.dataset.fieldType = fieldType;
+        icon.title = `Click to view highlight in PDF (${highlights.length} match${highlights.length > 1 ? 'es' : ''})`;
+        
+        // Set color based on field type from category
+        const category = highlightCategories.find(c => c.id === fieldType);
+        const colorValue = category?.color || FIELD_TYPES[fieldType]?.color || 'gray';
+        
+        const typeColors = {
+            purple: 'rgba(156, 39, 176, 0.8)',
+            green: 'rgba(76, 175, 80, 0.8)',
+            blue: 'rgba(33, 150, 243, 0.8)',
+            orange: 'rgba(255, 152, 0, 0.8)',
+            gray: 'rgba(158, 158, 158, 0.8)',
+            pink: 'rgba(233, 30, 99, 0.8)',
+            teal: 'rgba(0, 150, 136, 0.8)',
+            indigo: 'rgba(63, 81, 181, 0.8)'
+        };
+        
+        // Check if colorValue is hex (6 chars)
+        let iconColor;
+        if (/^[0-9A-Fa-f]{6}$/.test(colorValue)) {
+            const r = parseInt(colorValue.substr(0, 2), 16);
+            const g = parseInt(colorValue.substr(2, 2), 16);
+            const b = parseInt(colorValue.substr(4, 2), 16);
+            iconColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
+        } else {
+            iconColor = typeColors[colorValue] || typeColors.gray;
+        }
+        
+        icon.style.backgroundColor = iconColor;
+        icon.style.borderColor = iconColor;
+        
+        // Add click handler - focus PDF highlight, not form field
+        icon.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            scrollToFieldHighlight(formFieldName, input, true, false); // false = don't focus form field
+        });
+        
+        // Insert icon inline with the input field
+        // Create or find a wrapper div for the input + icon
+        let inputWrapper = input.parentElement;
+        
+        // Check if input is already in a flex container
+        if (inputWrapper && window.getComputedStyle(inputWrapper).display === 'flex') {
+            // Already in a flex container, just add icon
+            inputWrapper.appendChild(icon);
+        } else {
+            // Create a wrapper div
+            const wrapper = document.createElement('div');
+            wrapper.style.display = 'flex';
+            wrapper.style.alignItems = 'center';
+            wrapper.style.gap = '8px';
+            wrapper.style.width = '100%';
+            
+            // Move input into wrapper
+            input.parentElement.insertBefore(wrapper, input);
+            wrapper.appendChild(input);
+            wrapper.appendChild(icon);
+        }
+        
+        iconsAdded++;
+    }
+    
+    console.log(`✅ Added ${iconsAdded} highlight icons (${Object.keys(fieldHighlightMap).length} fields with highlights)`);
+    
+    // Log warning for fields that are populated but don't have highlights
+    const allPopulatedFields = form.querySelectorAll('.extracted-field input, .extracted-field select, .extracted-field textarea');
+    const populatedWithoutIcons = [];
+    allPopulatedFields.forEach(input => {
+        const fieldName = input.getAttribute('name');
+        const hasValue = input.value && input.value !== '' && input.value !== 'null';
+        const hasIcon = input.parentElement.querySelector('.highlight-icon') !== null;
+        
+        if (hasValue && !hasIcon && fieldName) {
+            populatedWithoutIcons.push(fieldName);
+        }
+    });
+    
+    if (populatedWithoutIcons.length > 0) {
+        console.warn(`⚠️ ${populatedWithoutIcons.length} populated fields without highlights:`, populatedWithoutIcons);
+    }
+}
+
+/**
+ * Sets up listeners so clicking an input highlights its source in the PDF.
+ * Enhanced with click-to-scroll functionality.
+ */
+function setupHighlightInteractivity() {
+    const form = document.getElementById('leaseForm');
+    if (!form) return;
+    
+    const allInputs = form.querySelectorAll('input, select, textarea');
+    const allHighlights = document.querySelectorAll('.highlight-box');
+
+    allInputs.forEach(input => {
+        // Use the form field name to link to the highlight data-field attribute
+        const fieldName = input.getAttribute('name');
+
+        if (!fieldName) return;
+
+        // Clear all highlights when form loses focus
+        input.addEventListener('blur', () => {
+            if (!isReviewMode) {
+                allHighlights.forEach(h => h.classList.remove('active'));
+                const formGroup = input.closest('.form-group');
+                if (formGroup) formGroup.classList.remove('review-highlighted');
+            }
+        });
+
+        // Enhanced click/focus listener with scroll-to-highlight
+        input.addEventListener('focus', (e) => {
+            scrollToFieldHighlight(fieldName, input, true);
+        });
+        
+        // Also add click listener for better UX in review mode
+        input.addEventListener('click', (e) => {
+            if (isReviewMode) {
+                scrollToFieldHighlight(fieldName, input, true);
+            }
+        });
+    });
+}
+
+/**
+ * Scroll to the first highlight for a given field
+ * @param {string} fieldName - Form field name
+ * @param {HTMLElement} input - Input element (optional)
+ * @param {boolean} highlight - Whether to highlight the match
+ * @param {boolean} focusFormField - Whether to also focus/scroll the form field (default true)
+ */
+function scrollToFieldHighlight(fieldName, input, highlight = true, focusFormField = true) {
+    const allHighlights = document.querySelectorAll('.highlight-box');
+    
+    // Clear all previous highlights
+    allHighlights.forEach(h => h.classList.remove('active'));
+    document.querySelectorAll('.form-group').forEach(g => g.classList.remove('review-highlighted'));
+    
+    // Find matching highlights
+    let matches = document.querySelectorAll(`.highlight-box[data-field="${fieldName}"]`);
+    
+    // If no matches, try the original field name (for extraction field names)
+    if (matches.length === 0) {
+        // Try reverse lookup - find which extraction field maps to this form field
+        for (const [extractionField, formField] of Object.entries(fieldNameMapping)) {
+            if (formField === fieldName) {
+                matches = document.querySelectorAll(`.highlight-box[data-field="${extractionField}"]`);
+                if (matches.length > 0) break;
+            }
+        }
+    }
+    
+    if (matches.length > 0) {
+        if (highlight) {
+            // Highlight all matches
+            matches.forEach(h => h.classList.add('active'));
+            
+            // Highlight the form field only if focusFormField is true
+            if (focusFormField && input) {
+                const formGroup = input.closest('.form-group');
+                if (formGroup) formGroup.classList.add('review-highlighted');
+            }
+        }
+        
+        // Scroll to the first match in PDF (this is the main action)
+        const firstMatch = matches[0];
+        const firstMatchPage = firstMatch.closest('.pdf-page-wrapper');
+        if (firstMatchPage) {
+            // Scroll PDF viewer to the highlight with focus on the highlight box
+            const pdfScrollArea = document.getElementById('pdfScrollArea');
+            if (pdfScrollArea) {
+                // Calculate scroll position to center the highlight in view
+                const highlightTop = firstMatch.offsetTop;
+                const scrollTop = highlightTop - (pdfScrollArea.clientHeight / 2) + (firstMatch.offsetHeight / 2);
+                
+                pdfScrollArea.scrollTo({
+                    top: Math.max(0, scrollTop),
+                    behavior: 'smooth'
+                });
+                
+                // Focus the PDF viewer
+                pdfScrollArea.focus();
+            }
+        }
+        
+        // Also scroll form if needed (only if focusFormField is true)
+        if (focusFormField && input) {
+            input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    } else {
+        console.warn(`No highlights found for field: ${fieldName}`);
+    }
+}
+
+/**
+ * Toggle Review Mode
+ */
+function toggleReviewMode() {
+    isReviewMode = !isReviewMode;
+    const reviewModeBtn = document.getElementById('reviewModeBtn');
+    const reviewModeText = document.getElementById('reviewModeText');
+    const legend = document.getElementById('highlightLegend');
+    
+    if (isReviewMode) {
+        // Enable review mode
+        if (reviewModeText) reviewModeText.textContent = 'Exit Review';
+        if (reviewModeBtn) reviewModeBtn.classList.add('active');
+        if (legend) legend.style.display = 'block';
+        
+        // Build legend
+        buildFieldTypeLegend();
+        
+        // Highlight all extracted fields
+        document.querySelectorAll('.extracted-field').forEach(group => {
+            group.classList.add('review-highlighted');
+        });
+        
+        console.log('✅ Review Mode Enabled');
+    } else {
+        // Disable review mode
+        if (reviewModeText) reviewModeText.textContent = 'Review Mode';
+        if (reviewModeBtn) reviewModeBtn.classList.remove('active');
+        if (legend) legend.style.display = 'none';
+        
+        // Clear highlights
+        document.querySelectorAll('.highlight-box').forEach(h => h.classList.remove('active'));
+        document.querySelectorAll('.form-group').forEach(g => g.classList.remove('review-highlighted'));
+        
+        console.log('✅ Review Mode Disabled');
+    }
+}
+
+/**
+ * Build field type legend
+ */
+function buildFieldTypeLegend() {
+    const legendItems = document.getElementById('legendItems');
+    if (!legendItems) return;
+    
+    legendItems.innerHTML = '';
+    
+    // Count highlights by type
+    const highlightsByType = {};
+    highlightData.forEach(h => {
+        const type = getFieldType(h.field);
+        if (!highlightsByType[type]) {
+            highlightsByType[type] = [];
+        }
+        highlightsByType[type].push(h);
+    });
+    
+    // Create legend items
+    for (const [type, config] of Object.entries(FIELD_TYPES)) {
+        const count = highlightsByType[type]?.length || 0;
+        if (count === 0) continue;
+        
+        const legendItem = document.createElement('div');
+        legendItem.className = 'legend-item active';
+        legendItem.dataset.type = type;
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true;
+        checkbox.dataset.type = type;
+        
+        const colorBox = document.createElement('span');
+        colorBox.className = 'legend-color highlight-type-' + type;
+        // Get color from category or use default
+        const category = highlightCategories.find(c => c.id === type);
+        const colorValue = category?.color || config.color;
+        
+        // Convert color name to rgba or use hex directly
+        const colors = {
+            purple: 'rgba(156, 39, 176, 0.4)',
+            green: 'rgba(76, 175, 80, 0.4)',
+            blue: 'rgba(33, 150, 243, 0.4)',
+            orange: 'rgba(255, 152, 0, 0.4)',
+            gray: 'rgba(158, 158, 158, 0.4)',
+            pink: 'rgba(233, 30, 99, 0.4)',
+            teal: 'rgba(0, 150, 136, 0.4)',
+            indigo: 'rgba(63, 81, 181, 0.4)'
+        };
+        
+        // Check if colorValue is a hex color (starts with number or letter, 6 chars)
+        if (/^[0-9A-Fa-f]{6}$/.test(colorValue)) {
+            // Convert hex to rgba
+            const r = parseInt(colorValue.substr(0, 2), 16);
+            const g = parseInt(colorValue.substr(2, 2), 16);
+            const b = parseInt(colorValue.substr(4, 2), 16);
+            colorBox.style.backgroundColor = `rgba(${r}, ${g}, ${b}, 0.4)`;
+            colorBox.style.borderColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
+        } else {
+            colorBox.style.backgroundColor = colors[colorValue] || colors.gray;
+            colorBox.style.borderColor = colors[colorValue]?.replace('0.4', '0.8') || colors.gray;
+        }
+        
+        const label = document.createElement('span');
+        label.textContent = `${config.name} (${count})`;
+        
+        // Toggle visibility on checkbox change
+        checkbox.addEventListener('change', (e) => {
+            const show = e.target.checked;
+            document.querySelectorAll(`.highlight-type-${type}`).forEach(h => {
+                h.style.display = show ? 'block' : 'none';
+            });
+            legendItem.classList.toggle('inactive', !show);
+        });
+        
+        legendItem.appendChild(checkbox);
+        legendItem.appendChild(colorBox);
+        legendItem.appendChild(label);
+        legendItems.appendChild(legendItem);
+    }
+}
+
+/**
+ * Setup review mode functionality
+ */
+function setupReviewMode() {
+    // Already set up via toggle function
+    // This can be used for initial setup if needed
 }
 
 // Extract lease data from PDF and populate form
@@ -702,6 +2194,7 @@ function displayUploadedPDF(file) {
 // Load Lease Data for Editing
 async function loadLeaseData(leaseId) {
     try {
+        const user = await getCurrentUser();
         const response = await fetch(`/api/leases/${leaseId}`, {
             method: 'GET',
             credentials: 'include'
@@ -709,6 +2202,9 @@ async function loadLeaseData(leaseId) {
         
         const result = await response.json();
         if (result.success && result.lease) {
+            if (user && user.role === 'admin') {
+                result.lease.username = user.username;
+            }
             const lease = result.lease;
             const form = document.getElementById('leaseForm');
             
@@ -1036,12 +2532,12 @@ function addAssetClass() {
     const value = input.value.trim();
     
     if (!value) {
-        alert('Please enter an asset class name');
+        showModal('Error', 'Please enter an asset class name');
         return;
     }
     
     if (assetClasses.includes(value)) {
-        alert('Asset class already exists');
+        showModal('Error', 'Asset class already exists');
         return;
     }
     
@@ -1070,6 +2566,116 @@ function updateAssetClassDropdown() {
     
     if (currentValue && assetClasses.includes(currentValue)) {
         select.value = currentValue;
+    }
+}
+
+// Highlight Category Management Functions
+function openHighlightCategoryModal() {
+    const modal = document.getElementById('highlightCategoryModal');
+    modal.style.display = 'block';
+    renderHighlightCategories();
+}
+
+function closeHighlightCategoryModal() {
+    const modal = document.getElementById('highlightCategoryModal');
+    modal.style.display = 'none';
+}
+
+function renderHighlightCategories() {
+    const container = document.getElementById('highlightCategoriesList');
+    if (!container) return;
+    
+    container.innerHTML = highlightCategories.map((cat, index) => `
+        <div class="highlight-category-item" style="margin-bottom: 15px; padding: 12px; border: 1px solid #e0e0e0; border-radius: 4px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <input type="text" id="cat-name-${index}" value="${cat.name}" 
+                       style="flex: 1; padding: 6px; border: 1px solid #ccc; border-radius: 3px;"
+                       onchange="updateHighlightCategoryName(${index}, this.value)">
+                <input type="color" id="cat-color-${index}" value="#${getColorHex(cat.color)}" 
+                       style="width: 50px; height: 35px; border: 1px solid #ccc; border-radius: 3px; cursor: pointer;"
+                       onchange="updateHighlightCategoryColor(${index}, this.value)">
+                <button type="button" class="btn-remove-small" onclick="removeHighlightCategory(${index})">Remove</button>
+            </div>
+            <div style="font-size: 12px; color: #666;">
+                <strong>Fields:</strong> ${cat.fields.join(', ')}
+            </div>
+        </div>
+    `).join('');
+}
+
+function getColorHex(colorName) {
+    const colorMap = {
+        purple: '9C27B0',
+        green: '4CAF50',
+        blue: '2196F3',
+        orange: 'FF9800',
+        gray: '9E9E9E',
+        pink: 'E91E63',
+        teal: '009688',
+        indigo: '3F51B5'
+    };
+    return colorMap[colorName] || '9E9E9E';
+}
+
+function updateHighlightCategoryName(index, newName) {
+    if (highlightCategories[index]) {
+        highlightCategories[index].name = newName;
+        saveHighlightCategoriesToStorage(highlightCategories);
+        // Rebuild FIELD_TYPES
+        Object.keys(FIELD_TYPES).forEach(key => delete FIELD_TYPES[key]);
+        highlightCategories.forEach(cat => {
+            FIELD_TYPES[cat.id] = {
+                fields: cat.fields,
+                color: cat.color,
+                name: cat.name
+            };
+        });
+        // Re-render legend if in review mode
+        if (isReviewMode) {
+            buildFieldTypeLegend();
+        }
+    }
+}
+
+function updateHighlightCategoryColor(index, colorHex) {
+    if (highlightCategories[index]) {
+        // Convert hex to color name if possible, or store hex
+        highlightCategories[index].color = colorHex.replace('#', '');
+        saveHighlightCategoriesToStorage(highlightCategories);
+        // Rebuild FIELD_TYPES
+        Object.keys(FIELD_TYPES).forEach(key => delete FIELD_TYPES[key]);
+        highlightCategories.forEach(cat => {
+            FIELD_TYPES[cat.id] = {
+                fields: cat.fields,
+                color: cat.color,
+                name: cat.name
+            };
+        });
+        // Re-render PDF highlights with new colors
+        if (pdfDocument && renderedPages.length > 0) {
+            reRenderPDF();
+        }
+    }
+}
+
+function removeHighlightCategory(index) {
+    if (confirm(`Remove highlight category "${highlightCategories[index].name}"?`)) {
+        highlightCategories.splice(index, 1);
+        saveHighlightCategoriesToStorage(highlightCategories);
+        // Rebuild FIELD_TYPES
+        Object.keys(FIELD_TYPES).forEach(key => delete FIELD_TYPES[key]);
+        highlightCategories.forEach(cat => {
+            FIELD_TYPES[cat.id] = {
+                fields: cat.fields,
+                color: cat.color,
+                name: cat.name
+            };
+        });
+        renderHighlightCategories();
+        // Re-render PDF if open
+        if (pdfDocument && renderedPages.length > 0) {
+            reRenderPDF();
+        }
     }
 }
 
@@ -1114,6 +2720,33 @@ document.addEventListener('DOMContentLoaded', function() {
            if (transitionDateInput) {
                transitionDateInput.addEventListener('change', toggleTransitionOptionRequired);
            }
+
+    // Initialize maker-checker controls
+    initWorkflowState();
+
+    // If opened in review mode with an id, auto-enable Review Mode and load cached PDF/highlights
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const mode = params.get('mode');
+        const idParam = params.get('id');
+        if (mode === 'review' && idParam) {
+            const cache = localStorage.getItem(`lease_review_${idParam}`);
+            if (cache) {
+                const parsed = JSON.parse(cache);
+                if (parsed.pdfUrl && Array.isArray(parsed.highlights)) {
+                    // Ensure PDF.js is ready
+                    loadPDFJS().then(async () => {
+                        if (typeof pdfjsLib !== 'undefined') {
+                            await renderPDFAndHighlights(parsed.pdfUrl, parsed.highlights);
+                            const reviewModeBtn = document.getElementById('reviewModeBtn');
+                            if (reviewModeBtn) reviewModeBtn.style.display = 'inline-block';
+                            toggleReviewMode();
+                        }
+                    }).catch(() => {});
+                }
+            }
+        }
+    } catch(e) {}
        });
 
 // Toggle Transition Option required field based on Transition Date
@@ -1318,12 +2951,12 @@ function autoPopulateRental() {
     
     // Validate required fields
     if (!leaseStartDate || !leaseEndDate) {
-        alert('Please enter Lease Start Date and Lease End Date');
+        showModal('Error', 'Please enter Lease Start Date and Lease End Date');
         return;
     }
     
     if (!rentalAmount || rentalAmount <= 0) {
-        alert('Please enter Rental Amount in the escalation parameters section');
+        showModal('Error', 'Please enter Rental Amount in the escalation parameters section');
         return;
     }
     
@@ -1333,11 +2966,11 @@ function autoPopulateRental() {
     
     // Validate parsed dates
     if (isNaN(startDate.getTime())) {
-        alert('Invalid Lease Start Date');
+        showModal('Error', 'Invalid Lease Start Date');
         return;
     }
     if (isNaN(endDate.getTime())) {
-        alert('Invalid Lease End Date');
+        showModal('Error', 'Invalid Lease End Date');
         return;
     }
     
@@ -1353,14 +2986,14 @@ function autoPopulateRental() {
             console.log('📅 Parsed escalation start date:', escStartDate, 'Valid:', !isNaN(escStartDate.getTime()));
             if (isNaN(escStartDate.getTime())) {
                 console.error('❌ Invalid escalation start date, cannot parse:', dateStr);
-                alert('Invalid Escalation Start Date. Please enter a valid date.');
+                showModal('Error', 'Invalid Escalation Start Date. Please enter a valid date.');
                 return;
             }
         } else if (escalationStartDate instanceof Date) {
             escStartDate = new Date(escalationStartDate);
             if (isNaN(escStartDate.getTime())) {
                 console.error('❌ Invalid escalation start date object');
-                alert('Invalid Escalation Start Date. Please enter a valid date.');
+                showModal('Error', 'Invalid Escalation Start Date. Please enter a valid date.');
                 return;
             }
         }
@@ -1368,7 +3001,7 @@ function autoPopulateRental() {
         // Escalation start date is required for escalation
         if (escalationPercentage > 0) {
             console.error('❌ Escalation Start Date is required when escalation percentage is set');
-            alert('Please enter Escalation Start Date in the escalation parameters section');
+            showModal('Error', 'Please enter Escalation Start Date in the escalation parameters section');
             return;
         }
     }
@@ -1980,10 +3613,13 @@ function displayPDF(file) {
 
 // Update Entered By
 async function updateEnteredBy() {
+    if (currentLeaseId) {
+        return; // Don't update for existing leases
+    }
     try {
         // Use AuthAPI from auth.js
-        if (typeof AuthAPI !== 'undefined' && AuthAPI.getCurrentUser) {
-            const user = await AuthAPI.getCurrentUser();
+        if (typeof getCurrentUser === 'function') {
+            const user = await getCurrentUser();
             if (user) {
                 const enteredByInput = document.querySelector('input[name="entered_by"]');
                 if (enteredByInput) {
@@ -2058,7 +3694,7 @@ async function saveDraft() {
     const transitionDate = data.transition_date;
     const transitionOption = data.transition_option;
     if (transitionDate && transitionDate.trim() !== '' && (!transitionOption || transitionOption.trim() === '')) {
-        alert('Transition Option is required when Transition Date is provided.');
+        showModal('Error', 'Transition Option is required when Transition Date is provided.');
         const transitionOptionSelect = document.getElementById('transition_option');
         if (transitionOptionSelect) {
             transitionOptionSelect.focus();
@@ -2085,12 +3721,19 @@ async function saveDraft() {
         console.log('📥 Save draft response:', result);
         
         if (result.success) {
-            alert('Draft saved successfully!');
-            // Update lease ID if new
-            if (!currentLeaseId && result.lease_id) {
+            const isNewLease = !currentLeaseId && result.lease_id;
+            if (isNewLease) {
                 currentLeaseId = result.lease_id;
                 window.history.replaceState({}, '', `/lease_form.html?id=${result.lease_id}`);
             }
+
+            // If this was a new lease created after an AI extraction, upload the source file.
+            if (isNewLease && fileFromExtraction) {
+                await uploadExtractedFile(currentLeaseId, fileFromExtraction);
+                fileFromExtraction = null; // Clear after upload
+            }
+
+            showModal('Success', 'Draft saved successfully!');
             // Update status display
             const statusEl = document.getElementById('formStatus');
             if (statusEl) {
@@ -2098,11 +3741,11 @@ async function saveDraft() {
             }
         } else {
             console.error('❌ Save draft failed:', result);
-            alert('Error saving draft: ' + (result.error || 'Unknown error'));
+            showModal('Error', 'Error saving draft: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('❌ Error saving draft:', error);
-        alert('Error saving draft. Please try again. Check console for details.');
+        showModal('Error', 'Error saving draft. Please try again. Check console for details.');
     }
 }
 
@@ -2145,7 +3788,7 @@ async function submitForm() {
     const hasRentalAmount = rentalAmount > 0;
     
     if (!hasRentalSchedule && !hasRentalAmount) {
-        alert('Please provide at least one rental amount. Either:\n' +
+        showModal('Error', 'Please provide at least one rental amount. Either:\n' +
               '1. Add rental entries in the Rent Schedule table, OR\n' +
               '2. Enter an amount in the "Amount" field for auto-population.');
         const rentalAmountInput = document.getElementById('rental_amount');
@@ -2171,7 +3814,7 @@ async function submitForm() {
     const transitionDate = data.transition_date;
     const transitionOption = data.transition_option;
     if (transitionDate && transitionDate.trim() !== '' && (!transitionOption || transitionOption.trim() === '')) {
-        alert('Transition Option is required when Transition Date is provided.');
+        showModal('Error', 'Transition Option is required when Transition Date is provided.');
         const transitionOptionSelect = document.getElementById('transition_option');
         if (transitionOptionSelect) {
             transitionOptionSelect.focus();
@@ -2201,15 +3844,15 @@ async function submitForm() {
         console.log('📥 Submit response:', result);
         
         if (result.success) {
-            alert('Lease submitted successfully!');
+            showModal('Success', 'Lease submitted successfully!');
             window.location.href = '/dashboard.html';
         } else {
             console.error('❌ Submit failed:', result);
-            alert('Error submitting lease: ' + (result.error || 'Unknown error'));
+            showModal('Error', 'Error submitting lease: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
         console.error('❌ Error submitting form:', error);
-        alert('Error submitting form. Please try again. Check console for details.');
+        showModal('Error', 'Error submitting form. Please try again. Check console for details.');
     }
 }
 
@@ -2652,3 +4295,96 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// --- Document Management Functions ---
+
+async function uploadExtractedFile(leaseId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', 'contract'); // Default to 'contract' for AI extractions
+
+    try {
+        const response = await fetch(`/api/leases/${leaseId}/documents`, {
+            method: 'POST',
+            body: formData,
+        });
+        const result = await response.json();
+        if (result.success) {
+            console.log('Automatically uploaded AI extraction source document.');
+            loadDocuments(leaseId); // Refresh the list
+        } else {
+            console.error('Failed to automatically upload AI extraction source:', result.error);
+        }
+    } catch (error) {
+        console.error('Error during automatic upload of AI extraction source:', error);
+    }
+}
+
+async function loadDocuments(leaseId) {
+    if (!leaseId) return;
+    try {
+        const response = await fetch(`/api/leases/${leaseId}/documents`);
+        const result = await response.json();
+        const tbody = document.getElementById('documentsTableBody');
+        const noDocsMessage = document.getElementById('noDocumentsMessage');
+
+        if (result.success && result.documents.length > 0) {
+            noDocsMessage.style.display = 'none';
+            tbody.innerHTML = result.documents.map(doc => `
+                <tr>
+                    <td>${doc.file_name}</td>
+                    <td>${doc.document_type}</td>
+                    <td>${(doc.file_size / 1024).toFixed(2)} KB</td>
+                    <td>${new Date(doc.uploaded_at).toLocaleString()}</td>
+                    <td>
+                        <a href="/api/documents/${doc.document_id}/download" class="btn-link">Download</a>
+                    </td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = '';
+            noDocsMessage.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Error loading documents:', error);
+    }
+}
+
+async function uploadDocument() {
+    if (!currentLeaseId) {
+        showModal('Error', 'Please save the lease as a draft before uploading documents.');
+        return;
+    }
+
+    const fileInput = document.getElementById('documentUploadInput');
+    const docTypeInput = document.getElementById('documentTypeSelect');
+    const file = fileInput.files[0];
+    const docType = docTypeInput.value;
+
+    if (!file) {
+        showModal('Error', 'Please select a file to upload.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', docType);
+
+    try {
+        const response = await fetch(`/api/leases/${currentLeaseId}/documents`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            showModal('Success', 'Document uploaded successfully.');
+            loadDocuments(currentLeaseId); // Refresh the list
+            fileInput.value = ''; // Clear the file input
+        } else {
+            showModal('Error', 'Error uploading document: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Error uploading document:', error);
+        showModal('Error', 'An unexpected error occurred during upload.');
+    }
+}

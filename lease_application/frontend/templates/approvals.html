@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Approvals Queue</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Sidebar Navigation -->
+        <div class="sidebar">
+            <nav class="sidebar-nav">
+                <a href="/dashboard.html" class="nav-item"><i class="fas fa-tachometer-alt nav-icon"></i><span>Dashboard</span></a>
+                <a href="/lease_form.html" class="nav-item"><i class="fas fa-file-alt nav-icon"></i><span>New Lease</span></a>
+                <a href="/approvals.html" class="nav-item active"><i class="fas fa-check-square nav-icon"></i><span>Approvals</span></a>
+                <a href="/consolidate.html" class="nav-item"><i class="fas fa-chart-pie nav-icon"></i><span>Consolidated Reports</span></a>
+                <a href="/admin.html" class="nav-item"><i class="fas fa-user-shield nav-icon"></i><span>Admin</span></a>
+            </nav>
+        </div>
+
+        <div class="main-content">
+            {% include 'header.html' %}
+            <div class="page-header">
+                <h1>Approvals</h1>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <select id="statusFilter" class="search-input" style="width: 200px;" onchange="loadApprovals()">
+                        <option value="submitted">Submitted</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="draft">Draft</option>
+                    </select>
+                </div>
+            </div>
+            <div class="content-area">
+                <div class="leases-table-container">
+                    <table class="leases-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Agreement Title</th>
+                                <th>Company</th>
+                                <th>Start</th>
+                                <th>End</th>
+                                <th>Status</th>
+                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="approvalsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+
+    <!-- Rejection Reason Modal -->
+    <div id="rejectionModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="rejectionModalTitle">Reason for rejection?</h2>
+                <button class="modal-close" onclick="closeRejectionModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="rejectionReason" class="modal-textarea" placeholder="Enter reason..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeRejectionModal()">Cancel</button>
+                <button class="btn-primary" onclick="submitRejection()">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approval Comment Modal -->
+    <div id="approvalModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Approval Comment (Optional)</h2>
+                <button class="modal-close" onclick="closeApprovalModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="approvalComment" class="modal-textarea" placeholder="Enter comment..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeApprovalModal()">Cancel</button>
+                <button class="btn-primary" onclick="submitApproval()">Approve</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentLeaseIdForAction = null;
+
+        function toggleSidebar() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        }
+
+        async function logout() {
+            try {
+                const r = await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+                const d = await r.json();
+                if (d.success) location.href = '/login.html';
+            } catch (e) {
+                location.href = '/login.html';
+            }
+        }
+
+        async function loadApprovals() {
+            const status = document.getElementById('statusFilter').value;
+            const res = await fetch('/api/leases', { credentials: 'include' });
+            const js = await res.json();
+            const tbody = document.getElementById('approvalsTableBody');
+            if (!js.success) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e74c3c;padding:24px;">Failed to load</td></tr>';
+                return;
+            }
+            const items = (js.leases || []).filter(l => (l.status || 'draft') === status);
+            if (items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:24px;">No items</td></tr>';
+                return;
+            }
+            const user = await getCurrentUser();
+            const isReviewer = user && (user.role === 'admin' || user.role === 'reviewer');
+            tbody.innerHTML = items.map(l => {
+                const s = l.status || 'draft';
+                const openLink = `<a href="/lease_form.html?id=${l.lease_id}&mode=review" class="action-link">Open</a>`;
+                const actions = (isReviewer && s === 'submitted') ? `
+                    ${openLink}
+                    <a href="#" class="action-link" onclick="approve(${l.lease_id});return false;">Approve</a>
+                    <span style="margin:0 8px;">|</span>
+                    <a href="#" class="action-link delete-link" onclick="reject(${l.lease_id});return false;">Reject</a>` : openLink;
+                const sd = l.lease_start_date ? new Date(l.lease_start_date).toLocaleDateString() : 'N/A';
+                const ed = l.lease_end_date ? new Date(l.lease_end_date).toLocaleDateString() : 'N/A';
+                return `<tr>
+                    <td>${l.lease_id}</td>
+                    <td>${l.agreement_title || 'N/A'}</td>
+                    <td>${l.company_name || 'N/A'}</td>
+                    <td>${sd}</td>
+                    <td>${ed}</td>
+                    <td><span class="status-badge ${s}">${s.charAt(0).toUpperCase() + s.slice(1)}</span></td>
+                    <td>${actions}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function approve(id) {
+            currentLeaseIdForAction = id;
+            openApprovalModal();
+        }
+
+        function reject(id) {
+            currentLeaseIdForAction = id;
+            openRejectionModal();
+        }
+
+        function openApprovalModal() {
+            const modal = document.getElementById('approvalModal');
+            if (modal) modal.style.display = 'block';
+        }
+
+        function closeApprovalModal() {
+            const modal = document.getElementById('approvalModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        async function submitApproval() {
+            if (!currentLeaseIdForAction) return;
+            const comment = document.getElementById('approvalComment').value || '';
+            const r = await fetch(`/api/leases/${currentLeaseIdForAction}/approve`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ comment }) });
+            const j = await r.json();
+            if (j.success) {
+                closeApprovalModal();
+                loadApprovals();
+            } else {
+                alert(j.error || 'Failed to approve');
+            }
+        }
+
+        function openRejectionModal() {
+            const modal = document.getElementById('rejectionModal');
+            if (modal) modal.style.display = 'block';
+        }
+
+        function closeRejectionModal() {
+            const modal = document.getElementById('rejectionModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        async function submitRejection() {
+            if (!currentLeaseIdForAction) return;
+            const reason = document.getElementById('rejectionReason').value || '';
+            if (!reason) {
+                alert('Reason for rejection is required.');
+                return;
+            }
+            const r = await fetch(`/api/leases/${currentLeaseIdForAction}/reject`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
+            const j = await r.json();
+            if (j.success) {
+                closeRejectionModal();
+                loadApprovals();
+            } else {
+                alert(j.error || 'Failed to reject');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => loadApprovals());
+    </script>
+</body>
+</html>

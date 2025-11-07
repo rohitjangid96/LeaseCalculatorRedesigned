@@ -12,7 +12,8 @@ cryptography>=3.4.0
 python-dateutil>=2.8.0
 
 # File Handling
-Werkzeug>=2.0.0
+Werkzeug<3.0.0
+importlib-metadata<7.0.0
 
 # HTTP Requests (for tests)
 requests>=2.25.0
@@ -31,4 +32,3 @@ google-generativeai>=0.3.0
 
 # Database (SQLite is built-in, but can add ORM if needed)
 # sqlalchemy>=1.4.0  # Optional: if migrating to ORM
-

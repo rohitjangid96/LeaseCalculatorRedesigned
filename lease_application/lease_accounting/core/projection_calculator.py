@@ -14,8 +14,8 @@ from datetime import date
 from typing import List, Dict, Optional
 from dateutil.relativedelta import relativedelta
 import logging
-from lease_accounting.core.models import LeaseData, PaymentScheduleRow
-from lease_accounting.utils.date_utils import eomonth
+from .models import LeaseData, PaymentScheduleRow
+from ..utils.date_utils import eomonth
 
 logger = logging.getLogger(__name__)
 

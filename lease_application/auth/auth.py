@@ -31,10 +31,10 @@ def require_admin(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        from database import get_user
+        from .. import database
         
         user_id = session.get('user_id')
-        user = get_user(user_id)
+        user = database.get_user(user_id)
         
         if not user or user.get('role') != 'admin':
             logger.warning(f"❌ Admin access denied for user_id={user_id}")
@@ -51,10 +51,10 @@ def require_reviewer(f):
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        from database import get_user
+        from .. import database
         
         user_id = session.get('user_id')
-        user = get_user(user_id)
+        user = database.get_user(user_id)
         
         if not user or user.get('role') not in ['admin', 'reviewer']:
             logger.warning(f"❌ Reviewer access denied for user_id={user_id}")

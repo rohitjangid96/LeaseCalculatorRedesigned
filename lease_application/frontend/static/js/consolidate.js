@@ -729,9 +729,8 @@ function exportToExcel() {
     const filename = `Consolidated_Report_${timestamp}.xlsx`;
     XLSX.writeFile(wb, filename);
     
-    alert('✅ Consolidated Excel report downloaded!\n\nFile: ' + filename + '\n\nContains:\n• Aggregated totals\n• Individual lease results\n• Consolidated journal entries\n• Timestamped filename');
+    showModal('Success', '✅ Consolidated Excel report downloaded!\n\nFile: ' + filename + '\n\nContains:\n• Aggregated totals\n• Individual lease results\n• Consolidated journal entries\n• Timestamped filename');
 }
 
 // Expose globally
 window.exportToExcel = exportToExcel;
-

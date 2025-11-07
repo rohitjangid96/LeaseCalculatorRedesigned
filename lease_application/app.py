@@ -11,16 +11,18 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 # Import configuration
-from config import config, Config
+from lease_application.config import Config, config
 
 # Import blueprints
-from auth import auth_bp
-from api import api_bp
-from pdf_upload_backend import pdf_bp
-from calculate_backend import calc_bp
+from lease_application.auth import auth_bp
+from lease_application.auth.auth import require_login, require_admin
+from lease_application.api import api_bp
+from lease_application.pdf_upload_backend import pdf_bp
+from lease_application.calculate_backend import calc_bp
+from lease_application.lease_management import copy_lease
 
 # Import database
-import database
+from lease_application import database
 
 
 def setup_logging(log_dir: Path):
@@ -71,9 +73,10 @@ def setup_logging(log_dir: Path):
 
 def create_app(config_name=None):
     """Application factory pattern"""
-    app = Flask(__name__, 
+    app = Flask(__name__,
                 template_folder='frontend/templates',
-                static_folder='frontend/static')
+                static_folder='frontend/static',
+                static_url_path='/static')
     
     # Load configuration
     config_name = config_name or os.environ.get('FLASK_ENV', 'default')
@@ -102,6 +105,15 @@ def create_app(config_name=None):
     app.register_blueprint(pdf_bp)
     app.register_blueprint(calc_bp)
     logger.info("✅ Blueprints registered")
+
+    # Bootstrap: make user 'Rohit' admin if exists
+    try:
+        user = database.get_user_by_username('Rohit')
+        if user and user.get('role') != 'admin':
+            database.set_user_role(user['user_id'], 'admin')
+            logger.info("👑 Bootstrapped user 'Rohit' to admin role")
+    except Exception as e:
+        logger.warning(f"Admin bootstrap skipped: {e}")
     
     # Session configuration
     @app.before_request
@@ -136,6 +148,11 @@ def create_app(config_name=None):
             logger.error(f"Error rendering dashboard.html: {e}")
             return f"Error loading dashboard: {e}", 500
     
+    @app.route('/api/leases/<int:lease_id>/copy', methods=['POST'])
+    @require_login
+    def copy_lease_route(lease_id):
+        return copy_lease(lease_id)
+
     # Lease Form page
     @app.route('/lease_form')
     @app.route('/lease_form.html')
@@ -174,6 +191,30 @@ def create_app(config_name=None):
         except Exception as e:
             logger.error(f"Error rendering consolidate.html: {e}")
             return f"Error loading consolidate page: {e}", 500
+
+    # Approvals page (maker-checker queue)
+    @app.route('/approvals')
+    @app.route('/approvals.html')
+    def approvals_page():
+        if 'user_id' not in session:
+            return redirect('/login.html')
+        try:
+            return render_template('approvals.html')
+        except Exception as e:
+            logger.error(f"Error rendering approvals.html: {e}")
+            return f"Error loading approvals page: {e}", 500
+
+    # Admin page (users & roles)
+    @app.route('/admin')
+    @app.route('/admin.html')
+    @require_login
+    @require_admin
+    def admin_page():
+        try:
+            return render_template('admin.html')
+        except Exception as e:
+            logger.error(f"Error rendering admin.html: {e}")
+            return f"Error loading admin page: {e}", 500
     
     logger.info("✅ Application created successfully")
     return app

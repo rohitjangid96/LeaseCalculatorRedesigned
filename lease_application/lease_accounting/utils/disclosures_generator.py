@@ -7,7 +7,7 @@ VBA Source: JournalD sheet - Disclosures section
 
 from typing import List, Dict, Any, Optional
 from datetime import date
-from lease_accounting.core.models import LeaseResult, LeaseData, PaymentScheduleRow
+from ..core.models import LeaseResult, LeaseData, PaymentScheduleRow
 
 
 class DisclosuresGenerator:

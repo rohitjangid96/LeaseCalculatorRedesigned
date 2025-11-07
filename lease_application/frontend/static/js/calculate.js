@@ -157,7 +157,7 @@ async function loadLeases() {
         }
         // Show error message if authentication failed
         if (error.message.includes('401') || error.message.includes('Authentication')) {
-            showError('Please login to view your leases. Redirecting to login...');
+            showModal('Authentication Error', 'Please login to view your leases. Redirecting to login...');
             setTimeout(() => {
                 window.location.href = 'login.html';
             }, 2000);
@@ -257,9 +257,19 @@ async function calculateLease() {
 
     try {
         // Fetch lease data
-        const leaseResponse = await fetch(`/api/leases/${leaseId}`, {
-            credentials: 'include'
-        });
+        const user = await getCurrentUser();
+        let leaseResponse;
+
+        // Admins can access any lease, so we don't need to send the user_id
+        if (user && user.role === 'admin') {
+            leaseResponse = await fetch(`/api/leases/${leaseId}`, {
+                credentials: 'include'
+            });
+        } else {
+            leaseResponse = await fetch(`/api/leases/${leaseId}`, {
+                credentials: 'include'
+            });
+        }
 
         if (!leaseResponse.ok) {
             throw new Error('Failed to load lease data');
@@ -980,9 +990,7 @@ function formatDate(dateStr) {
 }
 
 function showError(message) {
-    const errorDiv = document.getElementById('errorMessage');
-    errorDiv.textContent = message;
-    errorDiv.style.display = 'block';
+    showModal('Error', message);
 }
 
 function exportToExcel() {
@@ -1077,7 +1085,7 @@ function exportToExcel() {
     const filename = `Lease_${leaseId}_${timestamp}.xlsx`;
     XLSX.writeFile(wb, filename);
     
-    alert('✅ Enhanced Excel report downloaded!\n\nFile: ' + filename + '\n\nContains:\n• Professional summary with metadata\n• Amortization schedule\n• Journal entries\n• Timestamped filename');
+    showModal('Success', '✅ Enhanced Excel report downloaded!\n\nFile: ' + filename + '\n\nContains:\n• Professional summary with metadata\n• Amortization schedule\n• Journal entries\n• Timestamped filename');
 }
 
 async function logout() {
@@ -1117,7 +1125,7 @@ function hideEmailModal() {
 async function sendReportEmail() {
     const toEmail = document.getElementById('recipientEmail').value.trim();
     if (!toEmail || !toEmail.match(/^\S+@\S+\.\S+$/)) {
-        alert('❌ Please enter a valid recipient email');
+        showModal('Error', '❌ Please enter a valid recipient email');
         return;
     }
     hideEmailModal();
@@ -1226,11 +1234,11 @@ async function sendReportEmail() {
         const result = await response.json();
         
         if (result.success) {
-            alert('✅ Report sent to ' + toEmail + '!');
+            showModal('Success', '✅ Report sent to ' + toEmail + '!');
         } else {
-            alert('❌ Failed to send: ' + (result.error || 'Unknown error'));
+            showModal('Error', '❌ Failed to send: ' + (result.error || 'Unknown error'));
         }
     } catch (error) {
-        alert('❌ Error sending email: ' + error.message);
+        showModal('Error', '❌ Error sending email: ' + error.message);
     }
 }

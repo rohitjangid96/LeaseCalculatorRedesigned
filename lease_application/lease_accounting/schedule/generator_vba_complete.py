@@ -12,10 +12,10 @@ VBA Functions:
 
 from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple, Dict
-from lease_accounting.core.models import LeaseData, PaymentScheduleRow
-from lease_accounting.utils.date_utils import eomonth, edate
-from lease_accounting.utils.finance import present_value
-from lease_accounting.utils.rfr_rates import get_aro_rate
+from ..core.models import LeaseData, PaymentScheduleRow
+from ..utils.date_utils import eomonth, edate
+from ..utils.finance import present_value
+from ..utils.rfr_rates import get_aro_rate
 from dateutil.relativedelta import relativedelta
 import math
 import logging

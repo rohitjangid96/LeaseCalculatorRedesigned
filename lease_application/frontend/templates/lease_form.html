@@ -2,784 +2,849 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <title>Complete Lease Accounting Form</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/form.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 </head>
 <body>
-    <div class="form-container">
-        <!-- Top Navigation Bar -->
-        <div class="top-nav-bar">
-            <button class="btn-nav" onclick="goHome()">← Home</button>
-            <button class="btn-nav" onclick="logout()">Logout</button>
+    <div class="app-container">
+        <!-- Left Sidebar Navigation -->
+        <div class="sidebar">
+            <nav class="sidebar-nav">
+                <a href="/dashboard.html" class="nav-item"><i class="fas fa-tachometer-alt nav-icon"></i><span>Dashboard</span></a>
+                <a href="/lease_form.html" class="nav-item active"><i class="fas fa-file-alt nav-icon"></i><span>New Lease</span></a>
+                <a href="/approvals.html" class="nav-item"><i class="fas fa-check-square nav-icon"></i><span>Approvals</span></a>
+                <a href="/consolidate.html" class="nav-item"><i class="fas fa-chart-pie nav-icon"></i><span>Consolidated Reports</span></a>
+                <a href="/admin.html" class="nav-item"><i class="fas fa-user-shield nav-icon"></i><span>Admin</span></a>
+            </nav>
         </div>
-        
-        <!-- Header -->
-        <div class="form-header">
-            <div class="header-left">
-                <h1>Complete Lease Accounting Form</h1>
-                <span class="form-status" id="formStatus">Draft</span>
+
+        <div class="main-content">
+            {% include 'header.html' %}
+            <!-- Header -->
+            <div class="form-header">
+                <div class="header-left">
+                    <h1>Complete Lease Accounting Form</h1>
+                    <span class="form-status" id="formStatus">Draft</span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-secondary" id="uploadBtn" onclick="uploadContract()">Upload Contract – AI Extraction</button>
+                    <button class="btn-secondary" id="manualBtn" onclick="manualInput()">Manual Input</button>
+                    <button class="btn-secondary" id="reviewModeBtn" onclick="toggleReviewMode()" style="display:none;">
+                        <span id="reviewModeText">Review Mode</span>
+                    </button>
+                    <button class="btn-secondary" onclick="saveDraft()">Save Draft</button>
+                    <button class="btn-primary" id="submitLeaseBtn" onclick="submitLease()" title="Submit new lease" style="display:none;">Submit</button>
+                    <button class="btn-primary" id="submitForReviewBtn" onclick="openSubmitApprovalModal()" title="Submit lease for reviewer approval">Submit for Review</button>
+                    <button class="btn-secondary" id="approveLeaseBtn" style="display:none;" onclick="approveCurrentLease()" title="Approve this lease">Approve</button>
+                    <button class="btn-secondary" id="rejectLeaseBtn" style="display:none;" onclick="rejectCurrentLease()" title="Reject this lease">Reject</button>
+                    <button class="btn-secondary" onclick="resetForm()">Reset</button>
+                </div>
             </div>
-            <div class="header-actions">
-                <button class="btn-secondary" id="uploadBtn" onclick="uploadContract()">Upload Contract – AI Extraction</button>
-                <button class="btn-secondary" id="manualBtn" onclick="manualInput()">Manual Input</button>
-                <button class="btn-secondary" onclick="saveDraft()">Save Draft</button>
-                <button class="btn-primary" onclick="submitForm()">Submit</button>
-                <button class="btn-secondary" onclick="resetForm()">Reset</button>
-            </div>
-        </div>
-        
-        <!-- Main Content: Two-Column Layout -->
-        <div class="form-main">
-            <!-- Left Panel: Input Form -->
-            <div class="form-panel">
-                <form id="leaseForm" class="lease-form">
-                    
-                    <!-- Basic Details Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Basic Details</h2>
-                            <p class="section-description">General details about the asset.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Agreement Title
-                                        <span class="tooltip-icon" title="Unique identifier for the lease agreement">?</span>
-                                    </label>
-                                    <input type="text" name="agreement_title" placeholder="Enter agreement title">
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Company Name <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Name of the company/entity entering into the lease agreement">?</span>
-                                    </label>
-                                    <input type="text" name="company_name" placeholder="Enter company name" required>
-                                </div>
+            
+            <!-- Main Content: Two-Column Layout -->
+            <div class="form-main">
+                <!-- Left Panel: Input Form -->
+                <div class="form-panel">
+                    <form id="leaseForm" class="lease-form">
+                        
+                        <!-- Basic Details Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Basic Details</h2>
+                                <p class="section-description">General details about the asset.</p>
                             </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Lease Classification <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Classification determines accounting treatment per IFRS 16 / ASC 842">?</span>
-                                    </label>
-                                    <select name="lease_classification" required>
-                                        <option value="">Select</option>
-                                        <option value="operating">Operating Lease</option>
-                                        <option value="finance">Finance Lease</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Currency <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Transaction currency for the lease payments and accounting">?</span>
-                                    </label>
-                                    <select name="currency" required>
-                                        <option value="">Select currency</option>
-                                        <option value="USD">USD (United States Dollar)</option>
-                                        <option value="EUR">EUR (Euro)</option>
-                                        <option value="GBP">GBP (British Pound)</option>
-                                        <option value="INR">INR (Indian Rupee)</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Asset Class <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Classification of the leased asset type - determines depreciation method">?</span>
-                                    </label>
-                                    <div class="input-with-link">
-                                        <select name="asset_class" id="assetClassSelect" required>
-                                            <option value="">Select asset class</option>
-                                            <option value="Land">Land</option>
-                                            <option value="Building">Building</option>
-                                            <option value="Vehicle">Vehicle</option>
-                                            <option value="Equipment">Equipment</option>
-                                            <option value="Plant and Machinery">Plant and Machinery</option>
-                                        </select>
-                                        <a href="#" class="link-small" onclick="openAssetClassModal(); return false;">Manage Asset Classes</a>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Asset Title
-                                        <span class="tooltip-icon" title="Descriptive name or title of the leased asset">?</span>
-                                    </label>
-                                    <input type="text" name="asset_title" placeholder="Enter asset title">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Asset Location <span class="tooltip-icon" title="Physical location or address where the leased asset is located">?</span></label>
-                                    <input type="text" name="asset_location" placeholder="Enter asset location">
-                                </div>
-                                <div class="form-group">
-                                    <label>Counterparty <span class="tooltip-icon" title="Name of the lessor (party providing the asset) - important for disclosures">?</span></label>
-                                    <input type="text" name="counterparty" placeholder="Enter counterparty name">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Asset ID/Code
-                                        <span class="tooltip-icon" title="Unique identifier or code for the leased asset">?</span>
-                                    </label>
-                                    <input type="text" name="asset_id_code" placeholder="Enter asset ID or code">
-                                </div>
-                                <div class="form-group checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="related_party" class="checkbox-input">
-                                        <span class="checkbox-text">Related Party Transaction</span>
-                                        <span class="tooltip-icon" title="Check if this is a related party transaction">?</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Date Details Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Date Details</h2>
-                            <p class="section-description">Lease dates and terms information.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Lease Start Date <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Date when lease commences (lease inception date) - critical for calculating lease term and present value">?</span>
-                                    </label>
-                                    <input type="date" name="lease_start_date" id="lease_start_date" required onchange="updateTenureFromDates(); updateRentAccrualDayFromStartDate();" placeholder="DD/MM/YYYY">
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Lease End Date <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Date when lease term expires - used to calculate lease term and remaining lease liability">?</span>
-                                    </label>
-                                    <input type="date" name="lease_end_date" id="lease_end_date" required onchange="updateTenureFromDates()" placeholder="DD/MM/YYYY">
-                                    <div class="tenure-row">
-                                        <div class="tenure-input-wrapper">
-                                            <span class="tenure-prefix">#</span>
-                                            <input type="number" name="tenure_months" id="tenure_months" min="0" step="1" placeholder="0" class="tenure-input" onchange="updateEndDateFromTenure()" oninput="updateEndDateFromTenure()" onfocus="this.select()">
-                                            <select class="tenure-unit" disabled>
-                                                <option>Months</option>
-                                            </select>
-                                        </div>
-                                        <div class="tenure-input-wrapper">
-                                            <span class="tenure-prefix">#</span>
-                                            <input type="number" name="tenure_days_input" id="tenure_days_input" min="0" step="1" placeholder="0" class="tenure-input" onchange="updateEndDateFromTenure()" oninput="updateEndDateFromTenure()" onfocus="this.select()">
-                                            <select class="tenure-unit" disabled>
-                                                <option>Days</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Rent Agreement Date
-                                        <span class="tooltip-icon" title="Date when lease agreement was signed - may differ from lease start date">?</span>
-                                    </label>
-                                    <input type="date" name="rent_agreement_date">
-                                </div>
-                                <div class="form-group">
-                                    <label>Posting Date</label>
-                                    <div class="switch-group-inline">
-                                        <label class="switch-label-inline">Is posting date same as lease start date?<span class="tooltip-icon" title="Whether accounting posting date differs from lease start date">?</span></label>
-                                        <label class="toggle-switch">
-                                            <input type="checkbox" name="posting_date_same" checked onchange="togglePostingDate(this)">
-                                            <span class="slider"></span>
-                                        </label>
-                                        <div id="postingDateField" style="display:none; margin-top: 10px;">
-                                            <input type="date" name="posting_date">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group full-width">
-                                    <label>
-                                        Judgements Used in Lease Terms Above
-                                        <span class="tooltip-icon" title="Document management judgements and assumptions made in determining lease terms">?</span>
-                                    </label>
-                                    <textarea name="judgements" rows="3" placeholder="Enter judgements and assumptions"></textarea>
-                                </div>
-                            </div>
-                            <!-- Renewal Option -->
-                            <div class="subsection-new">
-                                <h3 class="subsection-heading">Renewal Option</h3>
-                                <div class="switch-group-inline">
-                                    <label class="switch-label-inline">Renewal Option<span class="tooltip-icon" title="Whether lease has renewal options that may extend the lease term">?</span></label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="has_renewal_option" onchange="toggleRenewalOption(this)">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div id="renewalOptions" style="display:none; margin-top: 15px;">
-                                    <div class="renewal-option" id="renewalOption1">
-                                        <div class="form-row">
-                                            <div class="form-group">
-                                                <label>Renewal Start Date<span class="tooltip-icon" title="Start date of renewal option period">?</span></label>
-                                                <input type="date" name="renewal_start_date[]">
-                                            </div>
-                                            <div class="form-group">
-                                                <label>Renewal End Date<span class="tooltip-icon" title="End date of renewal option period">?</span></label>
-                                                <input type="date" name="renewal_end_date[]">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <button type="button" class="btn-add-field" onclick="addRenewalOption()">+ Add Another Renewal Option</button>
-                                </div>
-                            </div>
-                            <!-- Termination Option -->
-                            <div class="subsection-new">
-                                <h3 class="subsection-heading">Termination Option</h3>
-                                <div class="switch-group-inline">
-                                    <label class="switch-label-inline">Termination Option<span class="tooltip-icon" title="Whether lease has early termination option">?</span></label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="has_termination_option" onchange="toggleTerminationOption(this)">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div id="terminationOption" style="display:none; margin-top: 15px;">
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label>Termination Date<span class="tooltip-icon" title="Date when lease can be terminated early">?</span></label>
-                                            <input type="date" name="termination_date">
-                                        </div>
-                                        <div class="form-group">
-                                            <label>Termination Penalty Amount<span class="tooltip-icon" title="Penalty amount payable for early termination">?</span></label>
-                                            <input type="number" name="termination_penalty" step="0.01" placeholder="0.00">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Rental Information Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Rental Information</h2>
-                            <p class="section-description">Payment details and rental schedule.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Payment Type <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Whether payments are made in advance (beginning of period) or in arrear (end of period)">?</span>
-                                    </label>
-                                    <select name="payment_type" required onchange="handlePaymentType(this)">
-                                        <option value="">Select</option>
-                                        <option value="advance">Advance</option>
-                                        <option value="arrear">Arrear</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        First Sequential Payment Date <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Date of first lease payment - may differ from lease start date">?</span>
-                                    </label>
-                                    <input type="date" name="first_payment_date" required>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Rent Payment Frequency <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Frequency of rental payments - determines payment schedule and discounting frequency">?</span>
-                                    </label>
-                                    <select name="rent_frequency" required onchange="updatePaymentInterval(this)">
-                                        <option value="">Select</option>
-                                        <option value="1">Monthly</option>
-                                        <option value="3">Quarterly</option>
-                                        <option value="6">Semi-annually</option>
-                                        <option value="12">Annually</option>
-                                        <option value="custom">Custom</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Payment Interval (Months) <span class="tooltip-icon" title="Number of months between payments - auto-populated based on frequency">?</span></label>
-                                    <input type="number" name="payment_interval" value="1" min="1">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Pay on Day of Month <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Specific day of month when payments are due - combined with frequency to generate payment schedule">?</span>
-                                    </label>
-                                    <select name="pay_day_of_month" required>
-                                        <option value="">Select</option>
-                                        <option value="last">Last Day</option>
-                                        <option value="1">1</option>
-                                        <option value="5">5</option>
-                                        <option value="15">15</option>
-                                        <option value="25">25</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Rent Accrual Day <span class="tooltip-icon" title="Day of month when rent is recognized in books for accrual accounting - typically matches payment date">?</span></label>
-                                    <input type="number" name="rent_accrual_day" min="1" max="31" placeholder="Auto from lease start">
-                                </div>
-                            </div>
-                            <!-- Rent Schedule -->
-                            <div class="subsection-new">
-                                <h3 class="subsection-heading">Rent Schedule</h3>
-                                
-                                <!-- Top Section - Input/Population Controls -->
-                                <div class="rental-controls-row">
-                                    <button type="button" class="btn-secondary" onclick="addManualRentalDetail()">
-                                        Add Rental Detail
-                                    </button>
-                                    <button type="button" class="btn-primary" onclick="autoPopulateRental()">
-                                        Auto Populate on basis of Escalation Details
-                                    </button>
-                                </div>
-                                
-                                <!-- Middle Section - Dynamic Rental Detail Entries (Table) -->
-                                <div id="rentalTableContainer" class="rental-table-container" style="display:none;">
-                                    <table id="rentalTable" class="rental-detail-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Rental #</th>
-                                                <th>Start Date</th>
-                                                <th>End Date</th>
-                                                <th>No. of Rentals</th>
-                                                <th>Amount</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="rentalTableBody">
-                                            <!-- Rental rows will be added here dynamically -->
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                <!-- Bottom Section - Escalation Parameters -->
-                                <div class="escalation-parameters-section">
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label>
-                                                Amount <span class="tooltip-icon" title="Fixed periodic rental payment amount - base rental for payment schedule calculation">?</span>
-                                            </label>
-                                            <input type="number" name="rental_amount" id="rental_amount" step="0.01" placeholder="0.00" onchange="resetRentalSchedule()">
-                                        </div>
-                                        <div class="form-group">
-                                            <label>
-                                                Escalation Start Date <span class="tooltip-icon" title="Date when rental escalation begins - first date of escalated rent">?</span>
-                                            </label>
-                                            <input type="date" name="escalation_start_date" id="escalation_start_date" onchange="resetRentalSchedule()">
-                                        </div>
-                                        <div class="form-group">
-                                            <label>
-                                                Escalation % <span class="tooltip-icon" title="Percentage increase in rental amount when escalation applies">?</span>
-                                            </label>
-                                            <div class="input-with-suffix">
-                                                <input type="number" name="escalation_percentage" id="escalation_percentage" step="0.01" placeholder="0.00" min="0" onchange="resetRentalSchedule()">
-                                                <span class="input-suffix">%</span>
-                                            </div>
-                                        </div>
-                                        <div class="form-group">
-                                            <label>
-                                                Escalation Frequency <span class="tooltip-icon" title="How often rental escalation applies - combined with percentage to calculate escalated rents (in months)">?</span>
-                                            </label>
-                                            <input type="number" name="escalation_frequency" id="escalation_frequency" min="1" value="12" onchange="resetRentalSchedule()">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Discount Rate & Valuation Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Discount Rate & Valuation</h2>
-                            <p class="section-description">Financial rates and valuation details.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Fair Value of Asset
-                                        <span class="tooltip-icon" title="Fair market value of the underlying asset - used to compute implicit rate of return if available">?</span>
-                                    </label>
-                                    <input type="number" name="fair_value" step="0.01" placeholder="0.00" onchange="calculateIRR(this)">
-                                    <span class="helper-text">Used for IFRS 16 lease liability calculation</span>
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Implicit Rate of Return (IRR)
-                                        <span class="tooltip-icon" title="Implicit rate in the lease - auto-computed when fair value is provided">?</span>
-                                    </label>
-                                    <input type="number" name="irr" step="0.01" placeholder="Auto-computed" readonly>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Incremental Borrowing Rate (IBR) <span class="required">*</span>
-                                        <span class="tooltip-icon" title="Discount rate used for present value calculations - rate lessee would pay to borrow funds">?</span>
-                                    </label>
-                                    <div class="input-with-suffix">
-                                        <input type="number" name="ibr" step="0.01" placeholder="0.00" required>
-                                        <span class="input-suffix">%</span>
-                                    </div>
-                                    <span class="helper-text">At least one of IRR or IBR must be filled</span>
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Compounding Month
-                                        <span class="tooltip-icon" title="Compounding frequency for discount rate - typically matches rental frequency (monthly=1, quarterly=3)">?</span>
-                                    </label>
-                                    <input type="number" name="compound_months" min="1" value="1">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Use IRR or IBR for Accounting
-                                        <span class="tooltip-icon" title="Select which rate to use for lease liability and ROU asset measurement">?</span>
-                                    </label>
-                                    <select name="use_rate_type">
-                                        <option value="ibr">IBR</option>
-                                        <option value="irr">IRR</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Other Details Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Other Details</h2>
-                            <p class="section-description">Additional lease information and options.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Initial Direct Expenditure <span class="tooltip-icon" title="Incremental costs directly attributable to obtaining the lease (e.g., legal fees, commissions)">?</span></label>
-                                    <input type="number" name="initial_direct_expenditure" step="0.01" placeholder="0.00">
-                                </div>
-                                <div class="form-group">
-                                    <label>Lease Incentive <span class="tooltip-icon" title="Benefits received from lessor (e.g., free rent period, cash incentives) - reduces ROU asset">?</span></label>
-                                    <input type="number" name="lease_incentive" step="0.01" placeholder="0.00">
-                                </div>
-                            </div>
-                            <!-- Purchase Option -->
-                            <div class="subsection-new">
-                                <h3 class="subsection-heading">Purchase Option</h3>
-                                <div class="switch-group-inline">
-                                    <label class="switch-label-inline">Purchase Option at End of Lease<span class="tooltip-icon" title="Whether lessee has option to purchase the asset at end of lease term">?</span></label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="has_purchase_option" onchange="togglePurchaseOption(this)">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div id="purchaseOption" style="display:none; margin-top: 15px;">
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label>Purchase Option Price <span class="tooltip-icon" title="Price at which lessee can purchase the asset at end of lease term">?</span></label>
-                                    <input type="number" name="purchase_option_price" step="0.01" placeholder="0.00">
-                                        </div>
-                                        <div class="form-group">
-                                            <label>Useful Life of Asset (Months) <span class="tooltip-icon" title="Expected economic useful life of the underlying asset in months">?</span></label>
-                                    <input type="number" name="useful_life_months" min="1" onchange="updateUsefulLifeEnd(this)">
-                                        </div>
-                                    </div>
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label>Useful Life End Date <span class="tooltip-icon" title="Calculated end date based on useful life months from lease start date">?</span></label>
-                                    <input type="date" name="useful_life_end_date" readonly>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- Security Deposit -->
-                            <div class="subsection-new">
-                                <h3 class="subsection-heading">Security Deposit</h3>
-                                <div class="switch-group-inline">
-                                    <label class="switch-label-inline">Security Deposit<span class="tooltip-icon" title="Whether lessee has provided security deposit to lessor">?</span></label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="has_security_deposit" onchange="toggleSecurityDeposit(this)">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div id="securityDeposit" style="display:none; margin-top: 15px;">
-                                    <div class="security-deposit-item" id="securityDeposit1">
-                                        <div class="form-row">
-                                            <div class="form-group">
-                                                <label>Security Deposit Amount <span class="tooltip-icon" title="Amount of security deposit paid by lessee - may need to be discounted to present value">?</span></label>
-                                    <input type="number" name="security_deposit_amount_1" step="0.01" placeholder="0.00">
-                                            </div>
-                                            <div class="form-group">
-                                                <label>Security Deposit Date <span class="tooltip-icon" title="Date when security deposit was paid or will be paid">?</span></label>
-                                    <input type="date" name="security_deposit_date_1">
-                                            </div>
-                                        </div>
-                                        <div class="form-row">
-                                            <div class="form-group">
-                                                <label>Discount Rate <span class="tooltip-icon" title="Discount rate to be applied if security deposit needs present value adjustment">?</span></label>
-                                    <input type="number" name="security_discount_rate_1" step="0.01" placeholder="0.00">
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <button type="button" class="btn-add-field" onclick="addSecurityDepositDetail()">+ Add Another Security Deposit Detail</button>
-                                    <div id="securityDepositList"></div>
-                                </div>
-                            </div>
-                            <!-- ARO -->
-                            <div class="subsection-new">
-                                <h3 class="subsection-heading">Asset Retirement Obligation</h3>
-                                <div class="switch-group-inline">
-                                    <label class="switch-label-inline">Asset Retirement Obligation<span class="tooltip-icon" title="Whether lessee has obligation to restore asset at end of lease term">?</span></label>
-                                    <label class="toggle-switch">
-                                        <input type="checkbox" name="has_aro" onchange="toggleARO(this)">
-                                        <span class="slider"></span>
-                                    </label>
-                                </div>
-                                <div id="aroSection" style="display:none; margin-top: 15px;">
-                                    <div class="form-row">
-                                        <div class="form-group">
-                                            <label>Initial Estimate <span class="tooltip-icon" title="Present value of estimated restoration costs that lessee must incur at end of lease">?</span></label>
-                                    <input type="number" name="aro_initial_estimate" step="0.01" placeholder="0.00">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Cost Centers & Audit Trail Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Cost Centers & Audit Trail</h2>
-                            <p class="section-description">Cost allocation and audit information.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Cost Center Name <span class="tooltip-icon" title="Cost center classification code for cost allocation and reporting">?</span></label>
-                                    <input type="text" name="cost_center" placeholder="Enter cost center">
-                                </div>
-                                <div class="form-group">
-                                    <label>Allocation <span class="tooltip-icon" title="Percentage or basis for allocating lease costs across departments or cost centers">?</span></label>
-                                    <input type="text" name="allocation" placeholder="Enter allocation">
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Entered By <span class="tooltip-icon" title="Name of person who initially entered this lease record - auto-filled from login">?</span></label>
-                                    <input type="text" name="entered_by" placeholder="Enter name" id="enteredBy" readonly>
-                                </div>
-                                <div class="form-group">
-                                    <label>Last Modified Date <span class="tooltip-icon" title="Date when lease record was last modified - auto-updated on save">?</span></label>
-                                    <input type="date" name="last_modified_date" readonly>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>Reviewed By <span class="tooltip-icon" title="Name of person who reviewed and approved this lease record">?</span></label>
-                                    <input type="text" name="reviewed_by" placeholder="Enter reviewer name">
-                                </div>
-                                <div class="form-group">
-                                    <label>Last Reviewed Date <span class="tooltip-icon" title="Date when lease record was last reviewed or approved">?</span></label>
-                                    <input type="date" name="last_reviewed_date">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Transition Details Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Transition Details</h2>
-                            <p class="section-description">Details for lease transition accounting.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Transition Date
-                                        <span class="tooltip-icon" title="Date of transition to new accounting standard (e.g., IFRS 16 / ASC 842)">?</span>
-                                    </label>
-                                    <input type="date" name="transition_date" id="transition_date" onchange="toggleTransitionOptionRequired()">
-                                </div>
-                                <div class="form-group">
-                                    <label>
-                                        Transition Option <span class="required" id="transition_option_required" style="display:none;">*</span>
-                                        <span class="tooltip-icon" title="Method used for transitioning to IFRS 16 / ASC 842 from previous accounting standards">?</span>
-                                    </label>
-                                    <select name="transition_option" id="transition_option">
-                                        <option value="">Select</option>
-                                        <option value="full_retrospective">Full Retrospective</option>
-                                        <option value="modified_retrospective">Modified Retrospective</option>
-                                        <option value="modified_retrospective_simplified">Modified Retrospective (Simplified)</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Lease Classification Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Lease Classification</h2>
-                            <p class="section-description">Classification criteria for lease accounting standards.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label>
-                                        Lease Classification (for US GAAP)
-                                        <span class="tooltip-icon" title="Classification of lease under US GAAP (e.g., Finance Lease, Operating Lease)">?</span>
-                                    </label>
-                                    <select name="lease_classification_usgaap">
-                                        <option value="">Select</option>
-                                        <option value="finance">Finance Lease</option>
-                                        <option value="operating">Operating Lease</option>
-                                    </select>
-                                </div>
-                                <div class="form-group checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="short_term_usgaap" class="checkbox-input" onchange="updateScopeExemption()">
-                                        <span class="checkbox-text">Short-term lease (US GAAP)</span>
-                                        <span class="tooltip-icon" title="Lease term is 12 months or less (US GAAP)">?</span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="short_term_ifrs" class="checkbox-input" onchange="updateScopeExemption()">
-                                        <span class="checkbox-text">Short-term lease (IFRS)</span>
-                                        <span class="tooltip-icon" title="Lease term is 12 months or less (IFRS 16)">?</span>
-                                    </label>
-                                </div>
-                                <div class="form-group checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="low_value_asset" class="checkbox-input" onchange="updateScopeExemption()">
-                                        <span class="checkbox-text">Low-value asset</span>
-                                        <span class="tooltip-icon" title="Underlying asset is of low value (IFRS 16)">?</span>
-                                    </label>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group checkbox-group">
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="scope_exemption_applied" id="scopeExemptionApplied" class="checkbox-input">
-                                        <span class="checkbox-text">Scope exemption applied</span>
-                                        <span class="tooltip-icon" title="Whether a scope exemption is applied (auto Yes if short-term or low value)">?</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Sublease Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Sublease</h2>
-                            <p class="section-description">Details if this lease is a sublease.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <button type="button" class="btn-add-field" onclick="openSubleaseModal()">+ Add Sublease Details</button>
-                            <div id="subleaseDetails" style="display:none; margin-top: 15px;">
+                            <div class="section-fields-panel">
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label>Sublease Start Date<span class="tooltip-icon" title="Start date of sublease arrangement">?</span></label>
-                                        <input type="date" name="sublease_start_date">
+                                        <label>
+                                            Agreement Title
+                                            <span class="tooltip-icon" title="Unique identifier for the lease agreement">?</span>
+                                        </label>
+                                        <input type="text" name="agreement_title" placeholder="Enter agreement title">
                                     </div>
                                     <div class="form-group">
-                                        <label>Sublease End Date<span class="tooltip-icon" title="End date of sublease arrangement">?</span></label>
-                                        <input type="date" name="sublease_end_date">
+                                        <label>
+                                            Company Name <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Name of the company/entity entering into the lease agreement">?</span>
+                                        </label>
+                                        <input type="text" name="company_name" placeholder="Enter company name" required>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Lease Classification <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Classification determines accounting treatment per IFRS 16 / ASC 842">?</span>
+                                        </label>
+                                        <select name="lease_classification" required>
+                                            <option value="">Select</option>
+                                            <option value="operating">Operating Lease</option>
+                                            <option value="finance">Finance Lease</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            Currency <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Transaction currency for the lease payments and accounting">?</span>
+                                        </label>
+                                        <select name="currency" required>
+                                            <option value="">Select currency</option>
+                                            <option value="USD">USD (United States Dollar)</option>
+                                            <option value="EUR">EUR (Euro)</option>
+                                            <option value="GBP">GBP (British Pound)</option>
+                                            <option value="INR">INR (Indian Rupee)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Asset Class <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Classification of the leased asset type - determines depreciation method">?</span>
+                                        </label>
+                                        <div class="input-with-link">
+                                            <select name="asset_class" id="assetClassSelect" required>
+                                                <option value="">Select asset class</option>
+                                                <option value="Land">Land</option>
+                                                <option value="Building">Building</option>
+                                                <option value="Vehicle">Vehicle</option>
+                                                <option value="Equipment">Equipment</option>
+                                                <option value="Plant and Machinery">Plant and Machinery</option>
+                                            </select>
+                                            <a href="#" class="link-small" onclick="openAssetClassModal(); return false;">Manage Asset Classes</a>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            Asset Title
+                                            <span class="tooltip-icon" title="Descriptive name or title of the leased asset">?</span>
+                                        </label>
+                                        <input type="text" name="asset_title" placeholder="Enter asset title">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Asset Location <span class="tooltip-icon" title="Physical location or address where the leased asset is located">?</span></label>
+                                        <input type="text" name="asset_location" placeholder="Enter asset location">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Counterparty <span class="tooltip-icon" title="Name of the lessor (party providing the asset) - important for disclosures">?</span></label>
+                                        <input type="text" name="counterparty" placeholder="Enter counterparty name">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Asset ID/Code
+                                            <span class="tooltip-icon" title="Unique identifier or code for the leased asset">?</span>
+                                        </label>
+                                        <input type="text" name="asset_id_code" placeholder="Enter asset ID or code">
+                                    </div>
+                                    <div class="form-group checkbox-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="related_party" class="checkbox-input">
+                                            <span class="checkbox-text">Related Party Transaction</span>
+                                            <span class="tooltip-icon" title="Check if this is a related party transaction">?</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Date Details Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Date Details</h2>
+                                <p class="section-description">Lease dates and terms information.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Lease Start Date <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Date when lease commences (lease inception date) - critical for calculating lease term and present value">?</span>
+                                        </label>
+                                        <input type="date" name="lease_start_date" id="lease_start_date" required onchange="updateTenureFromDates(); updateRentAccrualDayFromStartDate();" placeholder="DD/MM/YYYY">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            Lease End Date <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Date when lease term expires - used to calculate lease term and remaining lease liability">?</span>
+                                        </label>
+                                        <input type="date" name="lease_end_date" id="lease_end_date" required onchange="updateTenureFromDates()" placeholder="DD/MM/YYYY">
+                                        <div class="tenure-row">
+                                            <div class="tenure-input-wrapper">
+                                                <span class="tenure-prefix">#</span>
+                                                <input type="number" name="tenure_months" id="tenure_months" min="0" step="1" placeholder="0" class="tenure-input" onchange="updateEndDateFromTenure()" oninput="updateEndDateFromTenure()" onfocus="this.select()">
+                                                <select class="tenure-unit" disabled>
+                                                    <option>Months</option>
+                                                </select>
+                                            </div>
+                                            <div class="tenure-input-wrapper">
+                                                <span class="tenure-prefix">#</span>
+                                                <input type="number" name="tenure_days_input" id="tenure_days_input" min="0" step="1" placeholder="0" class="tenure-input" onchange="updateEndDateFromTenure()" oninput="updateEndDateFromTenure()" onfocus="this.select()">
+                                                <select class="tenure-unit" disabled>
+                                                    <option>Days</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Rent Agreement Date
+                                            <span class="tooltip-icon" title="Date when lease agreement was signed - may differ from lease start date">?</span>
+                                        </label>
+                                        <input type="date" name="rent_agreement_date">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Posting Date</label>
+                                        <div class="switch-group-inline">
+                                            <label class="switch-label-inline">Is posting date same as lease start date?<span class="tooltip-icon" title="Whether accounting posting date differs from lease start date">?</span></label>
+                                            <label class="toggle-switch">
+                                                <input type="checkbox" name="posting_date_same" checked onchange="togglePostingDate(this)">
+                                                <span class="slider"></span>
+                                            </label>
+                                            <div id="postingDateField" style="display:none; margin-top: 10px;">
+                                                <input type="date" name="posting_date">
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="form-row">
                                     <div class="form-group full-width">
-                                        <label>Sublease Payment Details<span class="tooltip-icon" title="Details about sublease rental payments and terms">?</span></label>
-                                        <textarea name="sublease_payment_details" rows="3" placeholder="Enter sublease payment details"></textarea>
+                                        <label>
+                                            Judgements Used in Lease Terms Above
+                                            <span class="tooltip-icon" title="Document management judgements and assumptions made in determining lease terms">?</span>
+                                        </label>
+                                        <textarea name="judgements" rows="3" placeholder="Enter judgements and assumptions"></textarea>
+                                    </div>
+                                </div>
+                                <!-- Renewal Option -->
+                                <div class="subsection-new">
+                                    <h3 class="subsection-heading">Renewal Option</h3>
+                                    <div class="switch-group-inline">
+                                        <label class="switch-label-inline">Renewal Option<span class="tooltip-icon" title="Whether lease has renewal options that may extend the lease term">?</span></label>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="has_renewal_option" onchange="toggleRenewalOption(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div id="renewalOptions" style="display:none; margin-top: 15px;">
+                                        <div class="renewal-option" id="renewalOption1">
+                                            <div class="form-row">
+                                                <div class="form-group">
+                                                    <label>Renewal Start Date<span class="tooltip-icon" title="Start date of renewal option period">?</span></label>
+                                                    <input type="date" name="renewal_start_date[]">
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Renewal End Date<span class="tooltip-icon" title="End date of renewal option period">?</span></label>
+                                                    <input type="date" name="renewal_end_date[]">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn-add-field" onclick="addRenewalOption()">+ Add Another Renewal Option</button>
+                                    </div>
+                                </div>
+                                <!-- Termination Option -->
+                                <div class="subsection-new">
+                                    <h3 class="subsection-heading">Termination Option</h3>
+                                    <div class="switch-group-inline">
+                                        <label class="switch-label-inline">Termination Option<span class="tooltip-icon" title="Whether lease has early termination option">?</span></label>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="has_termination_option" onchange="toggleTerminationOption(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div id="terminationOption" style="display:none; margin-top: 15px;">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Termination Date<span class="tooltip-icon" title="Date when lease can be terminated early">?</span></label>
+                                                <input type="date" name="termination_date">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Termination Penalty Amount<span class="tooltip-icon" title="Penalty amount payable for early termination">?</span></label>
+                                                <input type="number" name="termination_penalty" step="0.01" placeholder="0.00">
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <!-- Modifications / Terminations Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Modifications / Terminations</h2>
-                            <p class="section-description">Manage lease modifications and terminations.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="form-row">
-                                <button type="button" class="btn-add-field" onclick="openModificationModal()">+ Add Modification</button>
-                                <button type="button" class="btn-add-field" onclick="openTerminationModal()">+ Add Termination</button>
+                        
+                        <!-- Rental Information Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Rental Information</h2>
+                                <p class="section-description">Payment details and rental schedule.</p>
                             </div>
-                            <div id="modificationsList" style="margin-top: 15px;"></div>
-                            <div id="terminationsList" style="margin-top: 15px;"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Custom Fields Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Custom Fields</h2>
-                            <p class="section-description">Add additional custom fields as needed.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <button type="button" class="btn-add-field" onclick="addCustomField()">+ Add Custom Field</button>
-                            <div id="customFieldsList" style="margin-top: 15px;"></div>
-                        </div>
-                    </div>
-                    
-                    <!-- Attachments Section -->
-                    <div class="form-section-new">
-                        <div class="section-heading-panel">
-                            <h2 class="section-heading">Attachments</h2>
-                            <p class="section-description">Upload supporting documents.</p>
-                        </div>
-                        <div class="section-fields-panel">
-                            <div class="upload-section">
-                                <input type="file" id="fileUpload" multiple accept=".pdf,.doc,.docx" style="display:none;" onchange="handleFileUpload(this)">
-                                <button type="button" class="btn-secondary" onclick="document.getElementById('fileUpload').click()">Upload Files</button>
-                                <div id="uploadedFiles" class="uploaded-files-list"></div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Payment Type <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Whether payments are made in advance (beginning of period) or in arrear (end of period)">?</span>
+                                        </label>
+                                        <select name="payment_type" required onchange="handlePaymentType(this)">
+                                            <option value="">Select</option>
+                                            <option value="advance">Advance</option>
+                                            <option value="arrear">Arrear</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            First Sequential Payment Date <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Date of first lease payment - may differ from lease start date">?</span>
+                                        </label>
+                                        <input type="date" name="first_payment_date" required>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Rent Payment Frequency <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Frequency of rental payments - determines payment schedule and discounting frequency">?</span>
+                                        </label>
+                                        <select name="rent_frequency" required onchange="updatePaymentInterval(this)">
+                                            <option value="">Select</option>
+                                            <option value="1">Monthly</option>
+                                            <option value="3">Quarterly</option>
+                                            <option value="6">Semi-annually</option>
+                                            <option value="12">Annually</option>
+                                            <option value="custom">Custom</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Payment Interval (Months) <span class="tooltip-icon" title="Number of months between payments - auto-populated based on frequency">?</span></label>
+                                        <input type="number" name="payment_interval" value="1" min="1">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Pay on Day of Month <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Specific day of month when payments are due - combined with frequency to generate payment schedule">?</span>
+                                        </label>
+                                        <select name="pay_day_of_month" required>
+                                            <option value="">Select</option>
+                                            <option value="last">Last Day</option>
+                                            <option value="1">1</option>
+                                            <option value="5">5</option>
+                                            <option value="15">15</option>
+                                            <option value="25">25</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Rent Accrual Day <span class="tooltip-icon" title="Day of month when rent is recognized in books for accrual accounting - typically matches payment date">?</span></label>
+                                        <input type="number" name="rent_accrual_day" min="1" max="31" placeholder="Auto from lease start">
+                                    </div>
+                                </div>
+                                <!-- Rent Schedule -->
+                                <div class="subsection-new">
+                                    <h3 class="subsection-heading">Rent Schedule</h3>
+                                    
+                                    <!-- Top Section - Input/Population Controls -->
+                                    <div class="rental-controls-row">
+                                        <button type="button" class="btn-secondary" onclick="addManualRentalDetail()">
+                                            Add Rental Detail
+                                        </button>
+                                        <button type="button" class="btn-primary" onclick="autoPopulateRental()">
+                                            Auto Populate on basis of Escalation Details
+                                        </button>
+                                    </div>
+                                    
+                                    <!-- Middle Section - Dynamic Rental Detail Entries (Table) -->
+                                    <div id="rentalTableContainer" class="rental-table-container" style="display:none;">
+                                        <table id="rentalTable" class="rental-detail-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Rental #</th>
+                                                    <th>Start Date</th>
+                                                    <th>End Date</th>
+                                                    <th>No. of Rentals</th>
+                                                    <th>Amount</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="rentalTableBody">
+                                                <!-- Rental rows will be added here dynamically -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    
+                                    <!-- Bottom Section - Escalation Parameters -->
+                                    <div class="escalation-parameters-section">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>
+                                                    Amount <span class="tooltip-icon" title="Fixed periodic rental payment amount - base rental for payment schedule calculation">?</span>
+                                                </label>
+                                                <input type="number" name="rental_amount" id="rental_amount" step="0.01" placeholder="0.00" onchange="resetRentalSchedule()">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>
+                                                    Escalation Start Date <span class="tooltip-icon" title="Date when rental escalation begins - first date of escalated rent">?</span>
+                                                </label>
+                                                <input type="date" name="escalation_start_date" id="escalation_start_date" onchange="resetRentalSchedule()">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>
+                                                    Escalation % <span class="tooltip-icon" title="Percentage increase in rental amount when escalation applies">?</span>
+                                                </label>
+                                                <div class="input-with-suffix">
+                                                    <input type="number" name="escalation_percentage" id="escalation_percentage" step="0.01" placeholder="0.00" min="0" onchange="resetRentalSchedule()">
+                                                    <span class="input-suffix">%</span>
+                                                </div>
+                                            </div>
+                                            <div class="form-group">
+                                                <label>
+                                                    Escalation Frequency <span class="tooltip-icon" title="How often rental escalation applies - combined with percentage to calculate escalated rents (in months)">?</span>
+                                                </label>
+                                                <input type="number" name="escalation_frequency" id="escalation_frequency" min="1" value="12" onchange="resetRentalSchedule()">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                </form>
-            </div>
-            
-            <!-- Right Panel: PDF Viewer -->
-            <div class="pdf-panel" id="pdfPanel">
-                <div class="pdf-header">
-                    <h3>Document Viewer</h3>
-                    <div class="pdf-controls">
-                        <button class="btn-icon" title="Zoom In">🔍+</button>
-                        <button class="btn-icon" title="Zoom Out">🔍-</button>
-                        <button class="btn-icon" title="Download">⬇</button>
-                    </div>
+                        
+                        <!-- Discount Rate & Valuation Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Discount Rate & Valuation</h2>
+                                <p class="section-description">Financial rates and valuation details.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Fair Value of Asset
+                                            <span class="tooltip-icon" title="Fair market value of the underlying asset - used to compute implicit rate of return if available">?</span>
+                                        </label>
+                                        <input type="number" name="fair_value" step="0.01" placeholder="0.00" onchange="calculateIRR(this)">
+                                        <span class="helper-text">Used for IFRS 16 lease liability calculation</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            Implicit Rate of Return (IRR)
+                                            <span class="tooltip-icon" title="Implicit rate in the lease - auto-computed when fair value is provided">?</span>
+                                        </label>
+                                        <input type="number" name="irr" step="0.01" placeholder="Auto-computed" readonly>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Incremental Borrowing Rate (IBR) <span class="required">*</span>
+                                            <span class="tooltip-icon" title="Discount rate used for present value calculations - rate lessee would pay to borrow funds">?</span>
+                                        </label>
+                                        <div class="input-with-suffix">
+                                            <input type="number" name="ibr" step="0.01" placeholder="0.00" required>
+                                            <span class="input-suffix">%</span>
+                                        </div>
+                                        <span class="helper-text">At least one of IRR or IBR must be filled</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            Compounding Month
+                                            <span class="tooltip-icon" title="Compounding frequency for discount rate - typically matches rental frequency (monthly=1, quarterly=3)">?</span>
+                                        </label>
+                                        <input type="number" name="compound_months" min="1" value="1">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Use IRR or IBR for Accounting
+                                            <span class="tooltip-icon" title="Select which rate to use for lease liability and ROU asset measurement">?</span>
+                                        </label>
+                                        <select name="use_rate_type">
+                                            <option value="ibr">IBR</option>
+                                            <option value="irr">IRR</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Other Details Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Other Details</h2>
+                                <p class="section-description">Additional lease information and options.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Initial Direct Expenditure <span class="tooltip-icon" title="Incremental costs directly attributable to obtaining the lease (e.g., legal fees, commissions)">?</span></label>
+                                        <input type="number" name="initial_direct_expenditure" step="0.01" placeholder="0.00">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Lease Incentive <span class="tooltip-icon" title="Benefits received from lessor (e.g., free rent period, cash incentives) - reduces ROU asset">?</span></label>
+                                        <input type="number" name="lease_incentive" step="0.01" placeholder="0.00">
+                                    </div>
+                                </div>
+                                <!-- Purchase Option -->
+                                <div class="subsection-new">
+                                    <h3 class="subsection-heading">Purchase Option</h3>
+                                    <div class="switch-group-inline">
+                                        <label class="switch-label-inline">Purchase Option at End of Lease<span class="tooltip-icon" title="Whether lessee has option to purchase the asset at end of lease term">?</span></label>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="has_purchase_option" onchange="togglePurchaseOption(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div id="purchaseOption" style="display:none; margin-top: 15px;">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Purchase Option Price <span class="tooltip-icon" title="Price at which lessee can purchase the asset at end of lease term">?</span></label>
+                                        <input type="number" name="purchase_option_price" step="0.01" placeholder="0.00">
+                                            </div>
+                                            <div class="form-group">
+                                                <label>Useful Life of Asset (Months) <span class="tooltip-icon" title="Expected economic useful life of the underlying asset in months">?</span></label>
+                                        <input type="number" name="useful_life_months" min="1" onchange="updateUsefulLifeEnd(this)">
+                                            </div>
+                                        </div>
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Useful Life End Date <span class="tooltip-icon" title="Calculated end date based on useful life months from lease start date">?</span></label>
+                                        <input type="date" name="useful_life_end_date" readonly>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Security Deposit -->
+                                <div class="subsection-new">
+                                    <h3 class="subsection-heading">Security Deposit</h3>
+                                    <div class="switch-group-inline">
+                                        <label class="switch-label-inline">Security Deposit<span class="tooltip-icon" title="Whether lessee has provided security deposit to lessor">?</span></label>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="has_security_deposit" onchange="toggleSecurityDeposit(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div id="securityDeposit" style="display:none; margin-top: 15px;">
+                                        <div class="security-deposit-item" id="securityDeposit1">
+                                            <div class="form-row">
+                                                <div class="form-group">
+                                                    <label>Security Deposit Amount <span class="tooltip-icon" title="Amount of security deposit paid by lessee - may need to be discounted to present value">?</span></label>
+                                        <input type="number" name="security_deposit_amount_1" step="0.01" placeholder="0.00">
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Security Deposit Date <span class="tooltip-icon" title="Date when security deposit was paid or will be paid">?</span></label>
+                                        <input type="date" name="security_deposit_date_1">
+                                                </div>
+                                            </div>
+                                            <div class="form-row">
+                                                <div class="form-group">
+                                                    <label>Discount Rate <span class="tooltip-icon" title="Discount rate to be applied if security deposit needs present value adjustment">?</span></label>
+                                        <input type="number" name="security_discount_rate_1" step="0.01" placeholder="0.00">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn-add-field" onclick="addSecurityDepositDetail()">+ Add Another Security Deposit Detail</button>
+                                        <div id="securityDepositList"></div>
+                                    </div>
+                                </div>
+                                <!-- ARO -->
+                                <div class="subsection-new">
+                                    <h3 class="subsection-heading">Asset Retirement Obligation</h3>
+                                    <div class="switch-group-inline">
+                                        <label class="switch-label-inline">Asset Retirement Obligation<span class="tooltip-icon" title="Whether lessee has obligation to restore asset at end of lease term">?</span></label>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" name="has_aro" onchange="toggleARO(this)">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div id="aroSection" style="display:none; margin-top: 15px;">
+                                        <div class="form-row">
+                                            <div class="form-group">
+                                                <label>Initial Estimate <span class="tooltip-icon" title="Present value of estimated restoration costs that lessee must incur at end of lease">?</span></label>
+                                        <input type="number" name="aro_initial_estimate" step="0.01" placeholder="0.00">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Cost Centers & Audit Trail Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Cost Centers & Audit Trail</h2>
+                                <p class="section-description">Cost allocation and audit information.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Cost Center Name <span class="tooltip-icon" title="Cost center classification code for cost allocation and reporting">?</span></label>
+                                        <input type="text" name="cost_center" placeholder="Enter cost center">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Allocation <span class="tooltip-icon" title="Percentage or basis for allocating lease costs across departments or cost centers">?</span></label>
+                                        <input type="text" name="allocation" placeholder="Enter allocation">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Entered By <span class="tooltip-icon" title="Name of person who initially entered this lease record - auto-filled from login">?</span></label>
+                                        <input type="text" name="entered_by" placeholder="Enter name" id="enteredBy" readonly>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Last Modified Date <span class="tooltip-icon" title="Date when lease record was last modified - auto-updated on save">?</span></label>
+                                        <input type="date" name="last_modified_date" readonly>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Reviewed By <span class="tooltip-icon" title="Name of person who reviewed and approved this lease record">?</span></label>
+                                        <input type="text" name="reviewed_by" placeholder="Enter reviewer name">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Last Reviewed Date <span class="tooltip-icon" title="Date when lease record was last reviewed or approved">?</span></label>
+                                        <input type="date" name="last_reviewed_date">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Transition Details Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Transition Details</h2>
+                                <p class="section-description">Details for lease transition accounting.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Transition Date
+                                            <span class="tooltip-icon" title="Date of transition to new accounting standard (e.g., IFRS 16 / ASC 842)">?</span>
+                                        </label>
+                                        <input type="date" name="transition_date" id="transition_date" onchange="toggleTransitionOptionRequired()">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            Transition Option <span class="required" id="transition_option_required" style="display:none;">*</span>
+                                            <span class="tooltip-icon" title="Method used for transitioning to IFRS 16 / ASC 842 from previous accounting standards">?</span>
+                                        </label>
+                                        <select name="transition_option" id="transition_option">
+                                            <option value="">Select</option>
+                                            <option value="full_retrospective">Full Retrospective</option>
+                                            <option value="modified_retrospective">Modified Retrospective</option>
+                                            <option value="modified_retrospective_simplified">Modified Retrospective (Simplified)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Lease Classification Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Lease Classification</h2>
+                                <p class="section-description">Classification criteria for lease accounting standards.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>
+                                            Lease Classification (for US GAAP)
+                                            <span class="tooltip-icon" title="Classification of lease under US GAAP (e.g., Finance Lease, Operating Lease)">?</span>
+                                        </label>
+                                        <select name="lease_classification_usgaap">
+                                            <option value="">Select</option>
+                                            <option value="finance">Finance Lease</option>
+                                            <option value="operating">Operating Lease</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group checkbox-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="short_term_usgaap" class="checkbox-input" onchange="updateScopeExemption()">
+                                            <span class="checkbox-text">Short-term lease (US GAAP)</span>
+                                            <span class="tooltip-icon" title="Lease term is 12 months or less (US GAAP)">?</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group checkbox-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="short_term_ifrs" class="checkbox-input" onchange="updateScopeExemption()">
+                                            <span class="checkbox-text">Short-term lease (IFRS)</span>
+                                            <span class="tooltip-icon" title="Lease term is 12 months or less (IFRS 16)">?</span>
+                                        </label>
+                                    </div>
+                                    <div class="form-group checkbox-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="low_value_asset" class="checkbox-input" onchange="updateScopeExemption()">
+                                            <span class="checkbox-text">Low-value asset</span>
+                                            <span class="tooltip-icon" title="Underlying asset is of low value (IFRS 16)">?</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group checkbox-group">
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="scope_exemption_applied" id="scopeExemptionApplied" class="checkbox-input">
+                                            <span class="checkbox-text">Scope exemption applied</span>
+                                            <span class="tooltip-icon" title="Whether a scope exemption is applied (auto Yes if short-term or low value)">?</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Sublease Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Sublease</h2>
+                                <p class="section-description">Details if this lease is a sublease.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <button type="button" class="btn-add-field" onclick="openSubleaseModal()">+ Add Sublease Details</button>
+                                <div id="subleaseDetails" style="display:none; margin-top: 15px;">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Sublease Start Date<span class="tooltip-icon" title="Start date of sublease arrangement">?</span></label>
+                                            <input type="date" name="sublease_start_date">
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Sublease End Date<span class="tooltip-icon" title="End date of sublease arrangement">?</span></label>
+                                            <input type="date" name="sublease_end_date">
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group full-width">
+                                            <label>Sublease Payment Details<span class="tooltip-icon" title="Details about sublease rental payments and terms">?</span></label>
+                                            <textarea name="sublease_payment_details" rows="3" placeholder="Enter sublease payment details"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Modifications / Terminations Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Modifications / Terminations</h2>
+                                <p class="section-description">Manage lease modifications and terminations.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <button type="button" class="btn-add-field" onclick="openModificationModal()">+ Add Modification</button>
+                                    <button type="button" class="btn-add-field" onclick="openTerminationModal()">+ Add Termination</button>
+                                </div>
+                                <div id="modificationsList" style="margin-top: 15px;"></div>
+                                <div id="terminationsList" style="margin-top: 15px;"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Custom Fields Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Custom Fields</h2>
+                                <p class="section-description">Add additional custom fields as needed.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <button type="button" class="btn-add-field" onclick="addCustomField()">+ Add Custom Field</button>
+                                <div id="customFieldsList" style="margin-top: 15px;"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Document Management Section -->
+                        <div class="form-section-new">
+                            <div class="section-heading-panel">
+                                <h2 class="section-heading">Document Management</h2>
+                                <p class="section-description">Upload and manage lease-related documents.</p>
+                            </div>
+                            <div class="section-fields-panel">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>Upload New Document</label>
+                                        <input type="file" id="documentUploadInput" class="form-control">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Document Type</label>
+                                        <select id="documentTypeSelect" class="form-control">
+                                            <option value="contract">Contract</option>
+                                            <option value="amendment">Amendment</option>
+                                            <option value="correspondence">Correspondence</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group" style="align-self: flex-end;">
+                                        <button type="button" class="btn-primary" onclick="uploadDocument()">Upload</button>
+                                    </div>
+                                </div>
+                                <hr>
+                                <h4>Uploaded Documents</h4>
+                                <div class="table-container">
+                                    <table class="leases-table">
+                                        <thead>
+                                            <tr>
+                                                <th>File Name</th>
+                                                <th>Type</th>
+                                                <th>Size</th>
+                                                <th>Uploaded At</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="documentsTableBody">
+                                            <!-- Document rows will be populated by JS -->
+                                        </tbody>
+                                    </table>
+                                    <p id="noDocumentsMessage" style="display: none; text-align: center; padding: 20px;">No documents uploaded for this lease.</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    </form>
                 </div>
-                <div class="pdf-content">
-                    <div class="pdf-placeholder">
-                        <p>Upload a PDF to view here</p>
-                        <p class="helper-text">AI extraction will highlight key data points</p>
+                
+                <!-- Right Panel: PDF Viewer -->
+                <div class="pdf-panel" id="pdfPanel">
+                    <div class="pdf-resizer" id="pdfResizer"></div>
+                    <div class="pdf-header">
+                        <h3>Document Viewer</h3>
+                        <div class="pdf-controls">
+                            <div class="pdf-zoom-controls">
+                                <button class="btn-icon" id="zoomOutBtn" title="Zoom Out">−</button>
+                                <span class="pdf-zoom-value" id="zoomValue">150%</span>
+                                <button class="btn-icon" id="zoomInBtn" title="Zoom In">+</button>
+                            </div>
+                            <button class="btn-icon" id="fitWidthBtn" title="Fit to Width">⇄</button>
+                            <button class="btn-icon" id="fitPageBtn" title="Fit to Page">⊞</button>
+                            <button class="btn-icon" id="prevHighlightBtn" title="Previous Highlight">‹</button>
+                            <button class="btn-icon" id="nextHighlightBtn" title="Next Highlight">›</button>
+                            <button class="btn-icon" id="downloadPdfBtn" title="Download">⬇</button>
+                        </div>
                     </div>
-                    <div id="aiHighlights" class="ai-highlights" style="display:none;">
-                        <h4>AI Extracted Highlights</h4>
-                        <ul id="highlightsList"></ul>
+                    <!-- Field Type Legend (shown in review mode) -->
+                    <div id="highlightLegend" class="highlight-legend" style="display:none;">
+                        <div class="legend-header">
+                            <span>Show all available data points</span>
+                            <a href="#" class="link-small" onclick="openHighlightCategoryModal(); return false;" style="margin-left: 10px;">Manage Categories</a>
+                        </div>
+                        <div class="legend-items" id="legendItems">
+                            <!-- Legend items will be populated dynamically -->
+                        </div>
                     </div>
-                    <div id="pdfViewer" class="pdf-viewer" style="display:none;">
-                        <iframe id="pdfFrame" src="" width="100%" height="600px"></iframe>
+                    <div class="pdf-content">
+                        <div class="pdf-placeholder" id="pdfPlaceholder">
+                            <p>Upload a PDF to view here</p>
+                            <p class="helper-text">AI extraction will highlight key data points</p>
+                        </div>
+                        
+                        <div id="pdfViewerContainer" class="pdf-viewer-container" style="display:none; position: relative;">
+                            <div id="pdfScrollArea" class="pdf-scroll-area">
+                                </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -809,10 +874,83 @@
         </div>
     </div>
     
+    <!-- Highlight Category Management Modal -->
+    <div id="highlightCategoryModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h2>Manage Highlight Categories</h2>
+                <button class="modal-close" onclick="closeHighlightCategoryModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 15px; color: #666; font-size: 14px;">
+                    Manage highlight categories to organize extracted fields by type. Categories determine the color coding of highlights in the PDF viewer.
+                </p>
+                <div id="highlightCategoriesList">
+                    <!-- Categories will be populated dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeHighlightCategoryModal()">Close</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- API Key Modal (created dynamically in JS, but adding placeholder for styling) -->
     <div id="apiKeyModal" class="modal" style="display: none;"></div>
+
+    <!-- Rejection Reason Modal -->
+    <div id="rejectionModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="rejectionModalTitle">Reason for rejection?</h2>
+                <button class="modal-close" onclick="closeRejectionModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="rejectionReason" class="modal-textarea" placeholder="Enter reason..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeRejectionModal()">Cancel</button>
+                <button class="btn-primary" onclick="submitRejection()">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Submit for Approval Modal -->
+    <div id="submitApprovalModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Submit for Approval</h2>
+                <button class="modal-close" onclick="closeSubmitApprovalModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="approvalRequestType">Request Type</label>
+                    <select id="approvalRequestType" class="modal-select">
+                        <option value="creation">New Lease Creation</option>
+                        <option value="edit">Lease Edit</option>
+                        <option value="deletion">Lease Deletion</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="approvalComments">Comments (Optional)</label>
+                    <textarea id="approvalComments" class="modal-textarea" placeholder="Enter comments..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeSubmitApprovalModal()">Cancel</button>
+                <button class="btn-primary" onclick="submitLeaseForReview()">Submit</button>
+            </div>
+        </div>
+    </div>
     
+    <!-- PDF.js library will be loaded from local files first, then CDN fallback -->
+    <!-- Local files: static/js/pdf.min.js and static/js/pdf.worker.min.js -->
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/form.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/form.js', v='2') }}"></script>
+    <script>
+        function toggleSidebar() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        }
+    </script>
 </body>
 </html>

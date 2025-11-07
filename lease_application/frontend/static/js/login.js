@@ -1,64 +1,7 @@
 /**
- * Login Page JavaScript with API functions
+ * Login Page JavaScript
+ * Note: AuthAPI and apiRequest are defined in auth.js
  */
-
-const API_BASE_URL = 'http://localhost:5001/api';
-
-// Simple API helper
-async function apiRequest(endpoint, options = {}) {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const defaultOptions = {
-        credentials: 'include',
-        headers: {
-            'Content-Type': 'application/json',
-            ...options.headers
-        },
-        ...options
-    };
-    
-    try {
-        const response = await fetch(url, defaultOptions);
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.error || `HTTP ${response.status}`);
-        }
-        
-        return data;
-    } catch (error) {
-        console.error(`API Error (${endpoint}):`, error);
-        throw error;
-    }
-}
-
-// Auth API
-const AuthAPI = {
-    async login(username, password) {
-        return apiRequest('/login', {
-            method: 'POST',
-            body: JSON.stringify({ username, password })
-        });
-    },
-    
-    async register(username, email, password) {
-        return apiRequest('/register', {
-            method: 'POST',
-            body: JSON.stringify({ username, email, password })
-        });
-    },
-    
-    async logout() {
-        return apiRequest('/logout', {
-            method: 'POST'
-        });
-    },
-    
-    async getCurrentUser() {
-        return apiRequest('/user', {
-            method: 'GET'
-        });
-    }
-};
 
 // Tab switching
 async function switchTab(tab) {
@@ -88,16 +31,18 @@ async function login() {
     try {
         const data = await AuthAPI.login(username, password);
 
-        if (data.success) {
+        if (data.success && data.user) {
+            // Store user info in sessionStorage to solve race condition
+            sessionStorage.setItem('currentUser', JSON.stringify(data.user));
+            
             showMessage('loginMessage', 'Login successful! Redirecting...', 'success');
-            setTimeout(() => {
-                window.location.href = 'dashboard.html';
-            }, 1000);
+            
+            // Redirect to dashboard on successful login
+            window.location.href = '/dashboard';
         } else {
             showMessage('loginMessage', data.error || 'Login failed', 'error');
         }
     } catch (error) {
-        console.error('Login error:', error);
         showMessage('loginMessage', `Error connecting to server: ${error.message}. Is backend running?`, 'error');
     }
 }

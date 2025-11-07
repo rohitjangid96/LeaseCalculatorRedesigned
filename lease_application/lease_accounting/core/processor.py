@@ -16,8 +16,8 @@ from datetime import date, datetime, timedelta
 from typing import List, Optional
 from dateutil.relativedelta import relativedelta
 import logging
-from lease_accounting.core.models import LeaseData, LeaseResult, ProcessingFilters, PaymentScheduleRow
-from lease_accounting.schedule.generator_vba_complete import generate_complete_schedule
+from .models import LeaseData, LeaseResult, ProcessingFilters, PaymentScheduleRow
+from ..schedule.generator_vba_complete import generate_complete_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +116,7 @@ class LeaseProcessor:
         
         # VBA Line 361: Process lease modifications if applicable
         if lease_data.modifies_this_id and lease_data.modifies_this_id > 0:
-            from lease_accounting.core.lease_modifications import process_lease_modifications
+            from .lease_modifications import process_lease_modifications
             schedule, mod_results = process_lease_modifications(
                 lease_data, schedule, self.filters.end_date
             )
@@ -204,7 +204,7 @@ class LeaseProcessor:
         # This would require implementing the full projection logic first
         
         # Calculate Projections (VBA Lines 510-568)
-        from lease_accounting.core.projection_calculator import ProjectionCalculator
+        from .projection_calculator import ProjectionCalculator
         
         projection_calc = ProjectionCalculator(schedule, lease_data)
         projections = projection_calc.calculate_projections(

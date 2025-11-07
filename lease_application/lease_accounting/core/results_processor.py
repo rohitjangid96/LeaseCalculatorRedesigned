@@ -9,15 +9,15 @@ VBA Results Sheet: Columns D4-AG4 (and beyond) for lease results
 from datetime import date
 from typing import List, Dict, Optional
 import logging
-from lease_accounting.core.models import LeaseData, LeaseResult, ProcessingFilters
-from lease_accounting.core.processor import LeaseProcessor
-from lease_accounting.utils.journal_generator import JournalGenerator
+from .models import LeaseData, LeaseResult, ProcessingFilters
+from .processor import LeaseProcessor
+from ..utils.journal_generator import JournalGenerator
 
 logger = logging.getLogger(__name__)
 
 # Import JournalEntry from journal_generator
 try:
-    from lease_accounting.utils.journal_generator import JournalEntry
+    from ..utils.journal_generator import JournalEntry
 except ImportError:
     # Fallback if JournalEntry is defined differently
     from dataclasses import dataclass

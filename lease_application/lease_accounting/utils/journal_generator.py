@@ -5,7 +5,7 @@ Creates Excel-style journal entries (JournalD sheet)
 
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from lease_accounting.core.models import PaymentScheduleRow, LeaseResult
+from ..core.models import PaymentScheduleRow, LeaseResult
 
 
 @dataclass

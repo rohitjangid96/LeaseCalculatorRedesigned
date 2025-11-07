@@ -6,91 +6,75 @@
     <title>Lease Management Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 </head>
 <body>
     <div class="app-container">
         <!-- Left Sidebar Navigation -->
         <div class="sidebar">
-            <div class="sidebar-header">
-                <h1 class="logo">Lease Accounting System</h1>
-            </div>
-            
-            <div class="sidebar-search">
-                <input type="text" placeholder="Search..." class="search-input">
-            </div>
-            
             <nav class="sidebar-nav">
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">📄</span>
-                    <span>Agreements</span>
-                </a>
-                <a href="/dashboard.html" class="nav-item active">
-                    <span class="nav-icon">🏢</span>
-                    <span>Companies</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">📅</span>
-                    <span>Events</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">📊</span>
-                    <span>Consolidated Reports</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">💱</span>
-                    <span>Foreign Exchange Rates</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">🔔</span>
-                    <span>Reminders</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">📋</span>
-                    <span>Templates</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">👥</span>
-                    <span>Users & Permissions</span>
-                </a>
-                <a href="#" class="nav-item">
-                    <span class="nav-icon">❓</span>
-                    <span>Help</span>
-                </a>
+                <a href="/dashboard.html" class="nav-item active"><i class="fas fa-tachometer-alt nav-icon"></i><span>Dashboard</span></a>
+                <a href="/lease_form.html" class="nav-item"><i class="fas fa-file-alt nav-icon"></i><span>New Lease</span></a>
+                <a href="/approvals.html" class="nav-item"><i class="fas fa-check-square nav-icon"></i><span>Approvals</span></a>
+                <a href="/consolidate.html" class="nav-item"><i class="fas fa-chart-pie nav-icon"></i><span>Consolidated Reports</span></a>
+                <a href="/admin.html" class="nav-item" id="admin-link" style="display: none;"><i class="fas fa-user-shield nav-icon"></i><span>Admin</span></a>
             </nav>
-            
-            <div class="sidebar-footer">
-                <div class="user-info">
-                    <span>Parent Entity Inc.</span>
-                    <span class="user-name" id="username">User</span>
-                </div>
-            </div>
         </div>
         
         <!-- Main Content Area -->
         <div class="main-content">
-            <!-- Header -->
-            <div class="header-bar">
-                <span class="breadcrumb">Parent Entity Inc. > Companies</span>
-            </div>
-            
+            {% include 'header.html' %}
             <!-- Page Header -->
             <div class="page-header">
-                <h1>Companies</h1>
-                <div style="display: flex; gap: 10px; align-items: center;">
-                    <button class="btn-primary" onclick="createLease()">+ New Lease</button>
-                    <button class="btn-secondary" onclick="logout()" style="padding: 8px 16px;">Logout</button>
+                <h1>Dashboard</h1>
+                <div class="header-actions">
+                    <button class="btn-primary" onclick="window.location.href='lease_form.html'"><i class="fas fa-plus"></i> New Lease</button>
                 </div>
             </div>
-            
-            <!-- Search Bar -->
-            <div class="search-section">
-                <input type="text" placeholder="Search" class="search-input-main">
+
+            <!-- Stats Cards -->
+            <div class="stats-container">
+                <div class="stat-card">
+                    <div class="stat-icon total"><i class="fas fa-file-invoice-dollar"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-title">Total Leases</span>
+                        <span class="stat-value" id="statsTotal">0</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon active"><i class="fas fa-check-circle"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-title">Active Leases</span>
+                        <span class="stat-value" id="statsActive">0</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon expired"><i class="fas fa-times-circle"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-title">Expired Leases</span>
+                        <span class="stat-value" id="statsExpired">0</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon submitted"><i class="fas fa-hourglass-half"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-title">Pending Review</span>
+                        <span class="stat-value" id="statsSubmitted">0</span>
+                    </div>
+                </div>
             </div>
             
             <!-- Content Area -->
             <div class="content-area">
-                <!-- Leases Table -->
                 <div class="leases-table-container">
+                    <div class="table-header">
+                        <h2>All Leases</h2>
+                        <div class="search-section">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" id="leaseSearchInput" placeholder="Search leases..." class="search-input-main">
+                        </div>
+                    </div>
                     <table class="leases-table">
                         <thead>
                             <tr>
@@ -105,11 +89,30 @@
                             </tr>
                         </thead>
                         <tbody id="leasesTableBody">
+                            <!-- Rows will be populated by dashboard.js -->
+                        </tbody>
+                    </table>
+                    <div id="noLeasesMessage" style="display: none; text-align: center; padding: 40px; color: #999;">
+                        No leases found. <button class="btn-link" onclick="window.location.href='lease_form.html'">Create your first lease</button>
+                    </div>
+                </div>
+
+                <!-- Lease Stats by Company -->
+                <div class="leases-table-container">
+                    <div class="table-header">
+                        <h2>Leases by Company</h2>
+                    </div>
+                    <table class="leases-table">
+                        <thead>
                             <tr>
-                                <td colspan="8" style="text-align: center; padding: 40px; color: #999;">
-                                    No leases found. <button class="btn-link" onclick="createLease()">Create your first lease</button>
-                                </td>
+                                <th>Company</th>
+                                <th>Total Leases</th>
+                                <th>Active Leases</th>
+                                <th>Expired Leases</th>
                             </tr>
+                        </thead>
+                        <tbody id="companyStatsTableBody">
+                            <!-- Rows will be populated by dashboard.js -->
                         </tbody>
                     </table>
                 </div>
@@ -118,21 +121,38 @@
     </div>
     
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/login.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
     <script>
+        function toggleSidebar() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        }
+
+        document.getElementById('leaseSearchInput').addEventListener('keyup', function() {
+            const filter = this.value.toUpperCase();
+            const rows = document.querySelectorAll('#leasesTableBody tr');
+            rows.forEach(row => {
+                const cells = row.getElementsByTagName('td');
+                let match = false;
+                for (let i = 0; i < cells.length; i++) {
+                    if (cells[i]) {
+                        if (cells[i].innerHTML.toUpperCase().indexOf(filter) > -1) {
+                            match = true;
+                            break;
+                        }
+                    }
+                }
+                row.style.display = match ? '' : 'none';
+            });
+        });
+
         async function logout() {
             try {
-                const response = await fetch('/api/logout', {
-                    method: 'POST',
-                    credentials: 'include'
-                });
-                const data = await response.json();
-                if (data.success) {
-                    window.location.href = 'login.html';
-                }
+                await fetch('/api/logout', { method: 'POST', credentials: 'include' });
             } catch (error) {
-                console.error('Logout error:', error);
+                console.error('Logout API call failed:', error);
+            } finally {
+                // Always clear session storage and redirect
+                sessionStorage.removeItem('currentUser');
                 window.location.href = 'login.html';
             }
         }

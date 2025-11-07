@@ -6,7 +6,7 @@ Extracts lease information from PDF using AI with bounding box coordinates
 import json
 import re
 import os
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 
 try:
@@ -254,52 +254,77 @@ def extract_lease_info_from_text(text: str, api_key: Optional[str] = None) -> Di
 
 def _create_extraction_prompt_with_coordinates() -> str:
     """Create the AI prompt for extracting lease information with bounding box coordinates"""
-    return """You are an expert document extraction and analysis system. Your task is to accurately locate and extract specific fields from the provided PDF document. For every field you extract, you must also provide its precise location on the page.
+    return """You are an expert lease document extraction system specializing in IFRS 16 and ASC 842 lease accounting. Extract lease information from the PDF document with precise location coordinates.
 
-**Crucial Output Requirement:**
-1. Provide the extracted text value.
-2. Provide the page number where the text is found (1-based).
-3. Provide the bounding box (bbox) coordinates of the text. The bounding box must be an array of four integers in the format: [x_min, y_min, x_max, y_max]. These coordinates should be normalized to a 0 to 1000 scale relative to the page size, where (0, 0) is the bottom-left corner and (1000, 1000) is the top-right corner.
+**CRITICAL EXTRACTION GUIDELINES:**
+1. Read the entire document carefully - lease information may be spread across multiple pages
+2. Look for common lease terminology: "Lessee", "Lessor", "Commencement Date", "Rent", "Payment", "Term", "Rate"
+3. Extract dates in YYYY-MM-DD format (convert from any format found in document)
+4. Extract monetary values as pure numbers (remove currency symbols, commas, spaces)
+5. Extract percentages as numbers (remove % symbol)
+6. For each extracted value, identify its exact location on the page
 
-Extract the following lease fields from the document:
-- description: lease description or title
-- asset_class: asset category/type
-- asset_id_code: asset identifier/code (if available)
-- lease_start_date: start date in YYYY-MM-DD format
-- end_date: end date in YYYY-MM-DD format
-- agreement_date: agreement date in YYYY-MM-DD format
-- termination_date: termination date in YYYY-MM-DD format (if available)
-- first_payment_date: first payment date in YYYY-MM-DD format
-- tenure: lease term in months (integer)
-- frequency_months: payment frequency in months (integer, default 1)
-- day_of_month: payment day of month (string, default '1')
-- rental_1: first rental amount (number)
-- rental_2: second rental amount (number, if available)
-- currency: currency code like USD, INR
-- borrowing_rate: interest rate as percentage (number)
-- compound_months: compounding frequency in months (integer, default 12)
-- security_deposit: security deposit amount (number, if available)
-- esc_freq_months: escalation frequency in months (integer, if available)
-- escalation_percent: escalation percentage (number, if available)
-- escalation_start_date: escalation start date in YYYY-MM-DD format (if available)
-- lease_incentive: lease incentive amount (number, if available)
-- initial_direct_expenditure: initial direct costs (number, if available)
-- finance_lease: Yes or No (string, default 'No')
-- sublease: Yes or No (string, default 'No')
-- bargain_purchase: Yes or No (string, default 'No')
-- title_transfer: Yes or No (string, default 'No')
-- practical_expedient: Yes or No (string, default 'No')
-- short_term_ifrs: Yes or No (string, default 'No')
-- manual_adj: Yes or No (string, default 'No')
-- additional_info: any extra information (if available)
+**REQUIRED FIELDS TO EXTRACT:**
 
-For each field found, provide:
-- field_name: The field identifier
-- extracted_value: The actual text/number extracted
-- page_number: Page where the field is found (1-based)
-- bbox_normalized: [x_min, y_min, x_max, y_max] normalized to 0-1000 scale (bottom-left origin)
+**Basic Information:**
+- description: Full lease agreement title or description (e.g., "Office Lease Agreement", "Warehouse Lease")
+- company_name: Name of the Lessee (tenant) company
+- counterparty: Name of the Lessor (landlord) company
+- asset_class: Type of asset (Building, Land, Vehicle, Equipment, etc.)
+- asset_id_code: Asset identifier or code if mentioned
+- currency: Currency code (USD, EUR, INR, GBP, etc.)
 
-Important: Only include fields that you can actually find in the document. Return null or omit fields that are not present."""
+**Key Dates (convert to YYYY-MM-DD format):**
+- lease_start_date: Lease commencement/start date (look for: "Commencement Date", "Start Date", "Inception Date")
+- end_date: Lease expiration/end date (look for: "Expiration Date", "End Date", "Termination Date")
+- agreement_date: Date when agreement was signed (look for: "Agreement Date", "Execution Date", "Signed Date")
+- first_payment_date: First rental payment date (look for: "First Payment Date", "Initial Payment Date")
+- termination_date: Early termination date (if specified)
+
+**Financial Terms:**
+- rental_1: Base monthly/annual rental amount (extract the primary rent amount, remove currency symbols)
+- rental_2: Additional or secondary rental amount (if different rent periods exist)
+- rental_amount: Same as rental_1 if rental_1 not found (use whichever field name matches)
+- borrowing_rate: Incremental Borrowing Rate (IBR) as percentage number (look for: "IBR", "Discount Rate", "Borrowing Rate")
+- ibr: Same as borrowing_rate (use if borrowing_rate not found)
+- security_deposit: Security deposit amount if mentioned
+- lease_incentive: Any lease incentives or free rent periods (convert to monetary value if time-based)
+- initial_direct_expenditure: Initial direct costs (legal fees, commissions, etc.)
+
+**Lease Term and Frequency:**
+- tenure: Total lease term in months (calculate from start to end date if not explicitly stated)
+- frequency_months: Payment frequency (1=Monthly, 3=Quarterly, 6=Semi-annual, 12=Annual)
+- day_of_month: Day of month when payments are due (usually 1st or last day)
+- compound_months: Compounding frequency for discount rate (usually matches payment frequency)
+
+**Escalation Details (if applicable):**
+- escalation_percent: Annual rent escalation percentage (look for: "Escalation", "Increase", "Rent Review")
+- escalation_start_date: Date when escalation begins
+- esc_freq_months: How often escalation applies (typically 12 months)
+
+**Classification Flags:**
+- finance_lease: "Yes" if lease meets finance lease criteria, otherwise "No"
+- sublease: "Yes" if this is a sublease, otherwise "No"
+
+**OUTPUT FORMAT:**
+For each field extracted, provide:
+{
+  "field_name": "field_identifier",
+  "extracted_value": "actual_value_from_document",
+  "page_number": 1,
+  "bbox_normalized": [x_min, y_min, x_max, y_max]
+}
+
+Where bbox_normalized is in 0-1000 scale (bottom-left origin).
+
+**EXTRACTION TIPS:**
+- Dates: Convert "01/15/2025" to "2025-01-15", "January 15, 2025" to "2025-01-15"
+- Money: "$10,000.00" becomes 10000.00, "INR 50,000" becomes 50000
+- Percentages: "5.5%" becomes 5.5, "10 percent" becomes 10
+- Look in headers, footers, tables, and signature blocks
+- If a field appears multiple times, use the most prominent or first occurrence
+
+Extract only fields you can confidently identify. Return null for fields not found."""
 
 
 def _get_extraction_response_schema() -> dict:
@@ -527,40 +552,50 @@ def _convert_normalized_bbox_to_pdf_points(
 
 def _create_extraction_prompt(text: str) -> str:
     """Create the AI prompt for extracting lease information (text-based fallback)"""
-    return f"""Extract lease information from this document and return ONLY a JSON object with the following fields:
+    return f"""Extract lease information from this document and return ONLY a JSON object.
 
+**CRITICAL:** For each field that has a value, provide BOTH the normalized value AND the EXACT ORIGINAL TEXT as it appears in the document.
+
+Return JSON in this format (use objects with "value" and "original_text" for each field):
 {{
-  "description": "lease description or title (string)",
-  "asset_class": "asset category/type (string)",
-  "asset_id_code": "asset identifier/code (string or null)",
-  "lease_start_date": "start date in YYYY-MM-DD format (string or null)",
-  "end_date": "end date in YYYY-MM-DD format (string or null)",
-  "agreement_date": "agreement date in YYYY-MM-DD format (string or null)",
-  "termination_date": "termination date in YYYY-MM-DD format (string or null)",
-  "first_payment_date": "first payment date in YYYY-MM-DD format (string or null)",
-  "tenure": "lease term in months (integer or null)",
-  "frequency_months": "payment frequency in months (integer, default 1)",
-  "day_of_month": "payment day of month (string, default '1')",
-  "rental_1": "first rental amount (number or null)",
-  "rental_2": "second rental amount (number or null)",
-  "currency": "currency code like USD, INR (string or null)",
-  "borrowing_rate": "interest rate as percentage (number or null)",
-  "compound_months": "compounding frequency in months (integer, default 12)",
-  "security_deposit": "security deposit amount (number or null)",
-  "esc_freq_months": "escalation frequency in months (integer or null)",
-  "escalation_percent": "escalation percentage (number or null)",
-  "escalation_start_date": "escalation start date in YYYY-MM-DD format (string or null)",
-  "lease_incentive": "lease incentive amount (number or null)",
-  "initial_direct_expenditure": "initial direct costs (number or null)",
-  "finance_lease": "Yes or No (string, default 'No')",
-  "sublease": "Yes or No (string, default 'No')",
-  "bargain_purchase": "Yes or No (string, default 'No')",
-  "title_transfer": "Yes or No (string, default 'No')",
-  "practical_expedient": "Yes or No (string, default 'No')",
-  "short_term_ifrs": "Yes or No (string, default 'No')",
-  "manual_adj": "Yes or No (string, default 'No')",
-  "additional_info": "any extra information (string or null)"
+  "description": {{"value": "lease description or title", "original_text": "exact text from PDF"}},
+  "asset_class": {{"value": "asset category/type", "original_text": "exact text from PDF"}},
+  "asset_id_code": {{"value": "asset identifier/code or null", "original_text": "exact text or null"}},
+  "lease_start_date": {{"value": "start date in YYYY-MM-DD format or null", "original_text": "exact date text like 'March 1, 2002' or '03/01/2002'"}},
+  "end_date": {{"value": "end date in YYYY-MM-DD format or null", "original_text": "exact date text from PDF"}},
+  "agreement_date": {{"value": "agreement date in YYYY-MM-DD format or null", "original_text": "exact date text from PDF"}},
+  "termination_date": {{"value": "termination date in YYYY-MM-DD format or null", "original_text": "exact date text from PDF"}},
+  "first_payment_date": {{"value": "first payment date in YYYY-MM-DD format or null", "original_text": "exact date text from PDF"}},
+  "tenure": {{"value": "lease term in months (integer or null)", "original_text": "exact text like '180 months' or '15 years'"}},
+  "frequency_months": {{"value": "payment frequency in months (integer, default 1)", "original_text": "exact text like 'monthly', 'quarterly', '12 months'"}},
+  "day_of_month": {{"value": "payment day of month (string, default '1')", "original_text": "exact text from PDF"}},
+  "rental_1": {{"value": "first rental amount as number (remove $, commas)", "original_text": "exact text like '$15,300' or 'USD 15300'"}},
+  "rental_2": {{"value": "second rental amount as number or null", "original_text": "exact text from PDF"}},
+  "currency": {{"value": "currency code like USD, INR", "original_text": "exact text from PDF"}},
+  "borrowing_rate": {{"value": "interest rate as percentage number (remove %)", "original_text": "exact text like '5.5%' or '5.5 percent'"}},
+  "compound_months": {{"value": "compounding frequency in months (integer, default 12)", "original_text": "exact text from PDF"}},
+  "security_deposit": {{"value": "security deposit amount as number or null", "original_text": "exact text from PDF"}},
+  "esc_freq_months": {{"value": "escalation frequency in months (integer or null)", "original_text": "exact text from PDF"}},
+  "escalation_percent": {{"value": "escalation percentage as number (remove %)", "original_text": "exact text like '2.75%' or 'annual increase of 2.75%'"}},
+  "escalation_start_date": {{"value": "escalation start date in YYYY-MM-DD format or null", "original_text": "exact date text from PDF"}},
+  "lease_incentive": {{"value": "lease incentive amount as number or null", "original_text": "exact text from PDF"}},
+  "initial_direct_expenditure": {{"value": "initial direct costs as number or null", "original_text": "exact text from PDF"}},
+  "finance_lease": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "sublease": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "bargain_purchase": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "title_transfer": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "practical_expedient": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "short_term_ifrs": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "manual_adj": {{"value": "Yes or No (string, default 'No')", "original_text": "exact text from PDF"}},
+  "additional_info": {{"value": "any extra information or null", "original_text": "exact text from PDF or null"}}
 }}
+
+**IMPORTANT:** 
+- For "original_text", provide the EXACT text as it appears in the document (preserve formatting, spacing, punctuation)
+- For dates: If PDF says "January 15, 2002", original_text should be "January 15, 2002" (not the converted YYYY-MM-DD)
+- For amounts: If PDF says "$15,300.00", original_text should be "$15,300.00" (not the normalized number)
+- For percentages: If PDF says "2.75%", original_text should be "2.75%" or the exact phrase containing it
+- If field is not found, use null for both value and original_text
 
 Document Text:
 {text}
@@ -569,7 +604,7 @@ Important: Return ONLY the JSON object, no explanation or markdown formatting.""
 
 
 def _parse_ai_response(response_text: str) -> Dict:
-    """Parse AI response and extract JSON"""
+    """Parse AI response and extract JSON, handling both old and new formats"""
     try:
         # Try to find JSON in markdown code blocks
         json_match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
@@ -584,10 +619,30 @@ def _parse_ai_response(response_text: str) -> Dict:
                 json_str = response_text
         
         # Parse JSON
-        extracted_data = json.loads(json_str)
+        raw_data = json.loads(json_str)
         
-        # Validate and clean up the data
-        return _clean_extracted_data(extracted_data)
+        # Check if new format with value/original_text objects
+        extracted_data = {}
+        original_texts = {}  # Store original texts for highlight matching
+        
+        for field_name, field_value in raw_data.items():
+            if isinstance(field_value, dict) and 'value' in field_value:
+                # New format: {"value": "...", "original_text": "..."}
+                extracted_data[field_name] = field_value['value']
+                original_texts[field_name] = field_value.get('original_text')
+            else:
+                # Old format: just the value
+                extracted_data[field_name] = field_value
+                original_texts[field_name] = None
+        
+        # Clean up the data
+        cleaned_data = _clean_extracted_data(extracted_data)
+        
+        # Add original texts to metadata for highlight matching
+        if original_texts:
+            cleaned_data['_original_texts'] = original_texts
+        
+        return cleaned_data
         
     except json.JSONDecodeError as e:
         return {"error": f"Failed to parse AI response as JSON: {e}", "raw_response": response_text}
@@ -673,4 +728,114 @@ def _parse_date_field(value) -> Optional[str]:
             continue
     
     return None
+
+
+# --- New function for extraction with bounding box mapping ---
+def extract_and_locate_lease_data(pdf_path: str, fields_to_extract: Optional[Dict[str, str]] = None, api_key: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Uses Gemini AI to extract structured data and then finds the 
+    corresponding bounding boxes in the PDF using pdf_extractor.
+    
+    Args:
+        pdf_path: Path to the uploaded PDF file.
+        fields_to_extract: Optional dictionary of field names and their descriptions.
+        api_key: Google Gemini API key (if None, tries env var).
+    
+    Returns:
+        A dictionary containing extracted_data (key-value) and highlights (list of bboxes).
+    """
+    from .pdf_extractor import find_text_positions, normalize_search_text
+    
+    # First, extract the lease data using AI
+    extracted_data = extract_lease_info_from_pdf(pdf_path, api_key)
+    
+    # Check for errors in extraction
+    if 'error' in extracted_data:
+        return {
+            "extracted_data": {},
+            "highlights": [],
+            "error": extracted_data['error']
+        }
+    
+    # Remove metadata from extracted_data for field population
+    metadata = extracted_data.pop('_metadata', {})
+    
+    # Now map extracted values to bounding boxes
+    highlights = []
+    
+    # Map each extracted field value to its bounding box in the PDF
+    for field_name, value in extracted_data.items():
+        if value is not None and value != "" and not isinstance(value, dict):
+            # Convert value to string and normalize for search
+            search_value = str(value).strip()
+            
+            # Skip empty values and metadata
+            if not search_value or search_value.lower() in ['none', 'null', '']:
+                continue
+            
+            # Normalize the search text
+            normalized_value = normalize_search_text(search_value)
+            
+            # Limit search length to avoid issues with very long values
+            if len(normalized_value) > 100:
+                normalized_value = normalized_value[:100]
+            
+            # Find all positions of the value in the PDF
+            try:
+                matches = find_text_positions(pdf_path, normalized_value, case_sensitive=False)
+                
+                # Collect the first few matches for the highlight list
+                for match in matches[:3]:  # Limit to top 3 matches to avoid noise
+                    highlights.append({
+                        "field": field_name,  # The form field this data belongs to
+                        "page": match['page'],
+                        "bbox": match['bbox'],  # Bounding box in pdfplumber units [x0, top, x1, bottom]
+                        "text": match.get('text', search_value)
+                    })
+            except Exception as e:
+                print(f"Warning: Could not find positions for field {field_name}: {e}")
+                continue
+    
+    # Also check metadata for pre-computed bounding boxes from AI
+    if isinstance(metadata, dict):
+        for field_name, field_info in metadata.items():
+            if isinstance(field_info, dict) and 'bounding_boxes' in field_info:
+                page_number = field_info.get('page_number', 1)
+                for bbox in field_info['bounding_boxes']:
+                    if len(bbox) >= 4:
+                        highlights.append({
+                            "field": field_name,
+                            "page": page_number,
+                            "bbox": bbox[:4],  # Ensure we have exactly 4 values
+                            "text": field_info.get('extracted_value', '')
+                        })
+    
+    return {
+        "extracted_data": extracted_data,
+        "highlights": highlights
+    }
+
+
+def get_extraction_schema() -> Dict[str, str]:
+    """Helper to extract field names and descriptions for use in form population."""
+    # Return a mapping of field names to descriptions
+    field_descriptions = {
+        "agreement_title": "The title or identifier of the lease agreement.",
+        "company_name": "The name of the Lessee company.",
+        "counterparty": "The name of the Lessor or counterparty.",
+        "lease_start_date": "The lease commencement or start date (YYYY-MM-DD format).",
+        "lease_end_date": "The lease end or expiration date (YYYY-MM-DD format).",
+        "rental_amount": "The base fixed periodic rental payment amount.",
+        "ibr": "The Incremental Borrowing Rate (IBR) percentage.",
+        "currency": "The currency code (e.g., USD, EUR).",
+        "asset_class": "Asset category/type.",
+        "asset_id_code": "Unique identifier or code for the leased asset.",
+        "borrowing_rate": "Interest rate as percentage.",
+        "rental_1": "First rental amount.",
+        "rental_2": "Second rental amount (if available).",
+        "frequency_months": "Payment frequency in months.",
+        "day_of_month": "Payment day of month.",
+        "tenure": "Lease term in months.",
+    }
+    return field_descriptions
 
