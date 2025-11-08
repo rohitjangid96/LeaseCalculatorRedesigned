@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         /* Consolidate page-specific styles - Clean Minimal Modern UI */
         .form-section {
@@ -378,16 +380,7 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Left Sidebar Navigation -->
-        <div class="sidebar">
-            <nav class="sidebar-nav">
-                <a href="/dashboard.html" class="nav-item"><i class="fas fa-tachometer-alt nav-icon"></i><span>Dashboard</span></a>
-                <a href="/lease_form.html" class="nav-item"><i class="fas fa-file-alt nav-icon"></i><span>New Lease</span></a>
-                <a href="/approvals.html" class="nav-item"><i class="fas fa-check-square nav-icon"></i><span>Approvals</span></a>
-                <a href="/consolidate.html" class="nav-item active"><i class="fas fa-chart-pie nav-icon"></i><span>Consolidated Reports</span></a>
-                <a href="/admin.html" class="nav-item"><i class="fas fa-user-shield nav-icon"></i><span>Admin</span></a>
-            </nav>
-        </div>
+        {% include 'sidebar.html' %}
 
         <!-- Main Content Area -->
         <div class="main-content">
@@ -493,6 +486,7 @@
 
                         <div class="action-buttons" id="actionButtons" style="display: none; margin-top: 30px;">
                             <button class="btn-primary" onclick="exportToExcel()">📥 Export to Excel</button>
+                            <button class="btn-secondary" onclick="openEmailModal()">📧 Email Report</button>
                         </div>
                     </div>
 
@@ -567,6 +561,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
     <script src="{{ url_for('static', filename='js/consolidate.js') }}"></script>
     <script>
         function toggleSidebar() {

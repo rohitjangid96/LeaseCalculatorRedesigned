@@ -8,6 +8,7 @@ from werkzeug.utils import secure_filename
 import os
 import tempfile
 import logging
+import base64
 from . import database
 from datetime import datetime, date
 from lease_application.config import Config
@@ -177,7 +178,7 @@ def update_lease(lease_id):
         role = user.get('role', 'user') if user else 'user'
         data = request.json or {}
         data['lease_id'] = lease_id
-        updated_id = database.save_lease(user_id, data, role=role)
+        updated_id, _ = database.save_lease(user_id, data, role=role)
         logger.info(f"✅ Lease updated: lease_id={updated_id}")
         
         return jsonify({
@@ -256,11 +257,6 @@ def submit_lease(lease_id):
     logger.info(f"📤 POST /api/leases/{lease_id}/submit - User {user_id} submitting lease")
     try:
         database.submit_lease_for_review(lease_id, user_id)
-        try:
-            username = session.get('username')
-            database.add_lease_audit(lease_id, username or str(user_id), 'submitted', None)
-        except Exception:
-            pass
         # Optional: send email to reviewers/admins
         _notify_on_status_change(lease_id, 'submitted')
         return jsonify({'success': True, 'message': 'Lease submitted for review'})
@@ -278,12 +274,6 @@ def approve_lease(lease_id):
     logger.info(f"✅ POST /api/leases/{lease_id}/approve - Approver {approver_user_id}")
     try:
         database.approve_lease(lease_id, approver_user_id)
-        try:
-            username = session.get('username')
-            comment = (request.json or {}).get('comment') if request.is_json else None
-            database.add_lease_audit(lease_id, username or str(approver_user_id), 'approved', comment)
-        except Exception:
-            pass
         _notify_on_status_change(lease_id, 'approved')
         return jsonify({'success': True, 'message': 'Lease approved'})
     except Exception as e:
@@ -301,11 +291,6 @@ def reject_lease(lease_id):
     logger.info(f"❌ POST /api/leases/{lease_id}/reject - Approver {approver_user_id}")
     try:
         database.reject_lease(lease_id, approver_user_id, reason)
-        try:
-            username = session.get('username')
-            database.add_lease_audit(lease_id, username or str(approver_user_id), 'rejected', reason)
-        except Exception:
-            pass
         _notify_on_status_change(lease_id, 'rejected', reason)
         return jsonify({'success': True, 'message': 'Lease rejected'})
     except Exception as e:
@@ -930,3 +915,79 @@ def get_current_user_info():
             user.pop('password_hash', None)
             return jsonify({'success': True, 'user': user})
     return jsonify({'success': False, 'error': 'User not logged in'}), 401
+
+
+@api_bp.route('/audit_logs', methods=['GET'])
+@require_login
+def get_audit_logs():
+    """Get all audit logs"""
+    user_id = session['user_id']
+    logger.info(f"📋 GET /api/audit_logs - User {user_id} fetching audit logs")
+    
+    try:
+        with database.get_db_connection() as conn:
+            rows = conn.execute("SELECT * FROM lease_data_audit ORDER BY change_timestamp DESC").fetchall()
+            logs = [dict(row) for row in rows]
+        
+        return jsonify({'success': True, 'logs': logs})
+    except Exception as e:
+        logger.error(f"Error fetching audit logs: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/send_report', methods=['POST'])
+@require_login
+def send_report():
+    """Send a report via email"""
+    user_id = session['user_id']
+    logger.info(f"📧 POST /api/send_report - User {user_id} sending report")
+    
+    try:
+        data = request.json or {}
+        to_email = data.get('to_email')
+        subject = data.get('subject')
+        body = data.get('body')
+        attachment_content = data.get('attachment_content')
+        attachment_filename = data.get('attachment_filename')
+
+        if not to_email or not subject or not body:
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        configs = database.get_configs()
+        smtp_host = configs.get('SMTP_HOST')
+        smtp_port = int(configs.get('SMTP_PORT', 587))
+        smtp_user = configs.get('SMTP_USERNAME')
+        smtp_pass = configs.get('SMTP_PASSWORD')
+        from_email = configs.get('SMTP_FROM')
+
+        if not all([smtp_host, smtp_port, smtp_user, smtp_pass, from_email]):
+            return jsonify({'success': False, 'error': 'Email is not configured. Please contact an administrator.'}), 500
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.base import MIMEBase
+        from email import encoders
+
+        msg = MIMEMultipart()
+        msg['From'] = from_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        if attachment_content and attachment_filename:
+            part = MIMEBase('application', 'octet-stream')
+            part.set_payload(base64.b64decode(attachment_content))
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', f'attachment; filename="{attachment_filename}"')
+            msg.attach(part)
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+        return jsonify({'success': True, 'message': 'Email sent successfully'})
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

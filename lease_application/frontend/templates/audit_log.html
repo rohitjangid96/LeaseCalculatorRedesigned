@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Log</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/common.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/audit.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+    <div class="app-container">
+        {% include 'sidebar.html' %}
+        
+        <!-- Main Content Area -->
+        <div class="main-content">
+            {% include 'header.html' %}
+            <!-- Page Header -->
+            <div class="page-header">
+                <h1>Audit Log</h1>
+            </div>
+            
+            <!-- Content Area -->
+            <div class="content-area">
+                <div class="leases-table-container">
+                    <div class="table-header">
+                        <h2>Audit Log - Lease Data Changes</h2>
+                        <div class="search-section">
+                            <i class="fas fa-search search-icon"></i>
+                            <input type="text" id="auditSearchInput" placeholder="Search by Lease ID or User..." class="search-input-main">
+                            <button class="btn-secondary" onclick="openEmailModal()">📧 Email Report</button>
+                        </div>
+                    </div>
+                    <table class="leases-table audit-log-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Lease ID</th>
+                                <th>User</th>
+                                <th>Action</th>
+                                <th>Summary</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auditTableBody">
+                            </tbody>
+                    </table>
+                    <div id="noLogsMessage" style="display: none; text-align: center; padding: 40px; color: #999;">
+                        No audit logs found.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/audit.js') }}"></script>
+    <script>
+        function toggleSidebar() {
+            document.querySelector('.sidebar').classList.toggle('collapsed');
+        }
+    </script>
+</body>
+</html>

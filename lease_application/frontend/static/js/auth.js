@@ -204,4 +204,18 @@ async function updateUserDisplay(elementId = 'username') {
     if (element && user) {
         element.textContent = user.username || 'Guest';
     }
+    updateAdminLinkVisibility(user);
 }
+
+function updateAdminLinkVisibility(user) {
+    const adminLink = document.getElementById('admin-link');
+    if (adminLink && user && user.role === 'admin') {
+        adminLink.style.display = 'block';
+    } else if (adminLink) {
+        adminLink.style.display = 'none';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateUserDisplay();
+});

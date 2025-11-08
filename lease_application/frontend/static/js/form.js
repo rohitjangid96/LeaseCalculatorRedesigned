@@ -1588,7 +1588,7 @@ async function extractAndPopulateForm(file) {
     console.log('📥 Starting extraction for file:', file.name);
     
     if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
-        alert('Please select a PDF file');
+        showAlert('Please select a PDF file', 'warning');
         return;
     }
     
@@ -1660,7 +1660,7 @@ async function extractAndPopulateForm(file) {
             } catch (e) {
                 errorMsg = errorText || errorMsg;
             }
-            alert(`❌ Error: ${errorMsg}`);
+            showAlert(`❌ Error: ${errorMsg}`, 'error');
             if (uploadBtn) {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload Contract – AI Extraction';
@@ -1676,7 +1676,7 @@ async function extractAndPopulateForm(file) {
         } catch (parseError) {
             console.error('❌ Error parsing JSON response:', parseError);
             hideExtractionLoader();
-            alert('❌ Error: Invalid response from server. Please check console for details.');
+            showAlert('❌ Error: Invalid response from server. Please check console for details.', 'error');
             if (uploadBtn) {
                 uploadBtn.disabled = false;
                 uploadBtn.textContent = 'Upload Contract – AI Extraction';
@@ -1707,7 +1707,7 @@ async function extractAndPopulateForm(file) {
                 console.error('❌ Error displaying PDF:', displayError);
             }
             
-            alert('✅ Lease data extracted and form populated successfully!');
+            showAlert('✅ Lease data extracted and form populated successfully!', 'success');
         } else {
             const errorMsg = result.error || 'Failed to extract lease data';
             console.error('❌ Extraction failed:', errorMsg);
@@ -1715,14 +1715,14 @@ async function extractAndPopulateForm(file) {
             if (result.help) {
                 errorDisplay += `\n\n${result.help}`;
             }
-            alert(errorDisplay);
+            showAlert(errorDisplay, 'error');
         }
     } catch (error) {
         console.error('❌ Error extracting lease data:', error);
         console.error('   Stack:', error.stack);
         hideExtractionLoader();
         const errorMsg = error.message || 'Failed to extract lease data';
-        alert(`❌ Error: ${errorMsg}\n\nPlease check the browser console for more details.`);
+        showAlert(`❌ Error: ${errorMsg}\n\nPlease check the browser console for more details.`, 'error');
     } finally {
         // Reset button
         if (uploadBtn) {

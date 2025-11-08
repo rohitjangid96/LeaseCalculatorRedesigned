@@ -1,0 +1,71 @@
+.audit-table-summary {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.audit-table-summary:hover {
+    background-color: #f4f4f8;
+}
+
+/* Status Badges */
+.status-badge.UPDATE {
+    background-color: #fff3cd; /* Yellow for caution/change */
+    color: #856404;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: 600;
+}
+.status-badge.CREATE {
+    background-color: #d4edda; /* Green for new */
+    color: #155724;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+/* Diff Styling */
+.audit-detail-table {
+    width: 100%;
+    margin-top: 5px;
+    border-collapse: separate; /* Use separate for spacing */
+    border-spacing: 0 4px;
+}
+.audit-detail-table th {
+    font-weight: 500;
+    font-size: 0.9em;
+    padding: 4px 8px;
+    text-align: left;
+}
+.audit-detail-table td {
+    padding: 4px 8px;
+    vertical-align: top;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+/* Old and New Value Styling for Visual Diff */
+.old-value {
+    color: #dc3545; /* Red */
+    text-decoration: line-through;
+    opacity: 0.8;
+    margin-right: 10px;
+    display: inline-block;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.new-value {
+    color: #28a745; /* Green */
+    font-weight: 600;
+    display: inline-block;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.field-name-col {
+    font-family: Arial, sans-serif;
+    font-weight: 500;
+}

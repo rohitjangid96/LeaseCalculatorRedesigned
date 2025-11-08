@@ -144,7 +144,27 @@ def init_database():
         migrate_leases_table(conn)
         
         create_document_table(conn)
+        create_audit_table(conn)
         logger.info("✅ Database initialized (users and leases tables)")
+
+
+def create_audit_table(conn):
+    """Create the lease_data_audit table"""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS lease_data_audit (
+            audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lease_id INTEGER NOT NULL,
+            changed_by_user_id INTEGER NOT NULL,
+            changed_by_username TEXT,
+            change_timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            field_name TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            action TEXT NOT NULL,
+            FOREIGN KEY (lease_id) REFERENCES leases (lease_id)
+        );
+    """)
+    logger.info("✅ lease_data_audit table initialized")
 
 
 def create_document_table(conn):
@@ -355,25 +375,42 @@ def add_lease_audit(lease_id: int, user: str, action: str, comment: str = None):
 
 # ============ APPROVAL FLOW ============
 def submit_lease_for_review(lease_id: int, user_id: int):
+    old_lease = get_lease(lease_id, user_id)
     with get_db_connection() as conn:
         conn.execute(
             "UPDATE leases SET status = 'submitted', submitted_by = (SELECT username FROM users WHERE user_id = ?), submitted_at = CURRENT_TIMESTAMP WHERE lease_id = ? AND user_id = ?",
             (user_id, lease_id, user_id)
         )
+    new_lease = get_lease(lease_id, user_id)
+    user = get_user(user_id)
+    username = user.get('username', str(user_id))
+    add_data_change_audit_log(lease_id, user_id, username, 'status', old_lease.get('status'), new_lease.get('status'), action='UPDATE')
 
 def approve_lease(lease_id: int, approver_user_id: int):
+    old_lease = get_lease(lease_id)
     with get_db_connection() as conn:
         conn.execute(
             "UPDATE leases SET status = 'approved', approved_by = (SELECT username FROM users WHERE user_id = ?), approved_at = CURRENT_TIMESTAMP, last_reviewed_date = CURRENT_TIMESTAMP, reviewed_by = (SELECT username FROM users WHERE user_id = ?) WHERE lease_id = ?",
             (approver_user_id, approver_user_id, lease_id)
         )
+    new_lease = get_lease(lease_id)
+    user = get_user(approver_user_id)
+    username = user.get('username', str(approver_user_id))
+    add_data_change_audit_log(lease_id, approver_user_id, username, 'status', old_lease.get('status'), new_lease.get('status'), action='UPDATE')
 
 def reject_lease(lease_id: int, approver_user_id: int, reason: str):
+    old_lease = get_lease(lease_id)
     with get_db_connection() as conn:
         conn.execute(
             "UPDATE leases SET status = 'rejected', rejection_reason = ?, approved_by = NULL, approved_at = NULL, last_reviewed_date = CURRENT_TIMESTAMP, reviewed_by = (SELECT username FROM users WHERE user_id = ?) WHERE lease_id = ?",
             (reason, approver_user_id, lease_id)
         )
+    new_lease = get_lease(lease_id)
+    user = get_user(approver_user_id)
+    username = user.get('username', str(approver_user_id))
+    add_data_change_audit_log(lease_id, approver_user_id, username, 'status', old_lease.get('status'), new_lease.get('status'), action='UPDATE')
+    if reason:
+        add_data_change_audit_log(lease_id, approver_user_id, username, 'rejection_reason', old_lease.get('rejection_reason'), reason, action='UPDATE')
 
 
 # ============ USER MANAGEMENT ============
@@ -433,166 +470,93 @@ def get_user_by_username(username: str) -> Optional[Dict]:
 
 # ============ LEASE MANAGEMENT ============
 
-def save_lease(user_id: int, lease_data: Dict, role: str = 'user') -> int:
-    """Save or update a lease"""
+def add_data_change_audit_log(lease_id, user_id, username, field_name, old_value, new_value, action='UPDATE'):
+    """Logs a specific data field change for a lease."""
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO lease_data_audit (lease_id, changed_by_user_id, changed_by_username, field_name, old_value, new_value, action)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (lease_id, user_id, username, field_name, str(old_value), str(new_value), action)
+        )
+
+
+def save_lease(user_id: int, lease_data: Dict, role: str = 'user') -> tuple:
+    """Save or update a lease and audit the changes."""
     lease_id = lease_data.get('lease_id')
-    
-    # Map form field names to database column names
+    old_lease_data = None
+    if lease_id:
+        old_lease_data = get_lease(lease_id)
+
     field_mapping = {
-        'agreement_title': 'agreement_title',
-        'company_name': 'company_name',
-        'escalation_percentage': 'escalation_percentage',
-        'rental_amount': 'rental_amount',
-        'escalation_frequency': 'escalation_frequency',
-        'rent_frequency': 'rent_frequency',
-        'payment_interval': 'payment_interval',
-        'pay_day_of_month': 'pay_day_of_month',
-        'rent_accrual_day': 'rent_accrual_day',
-        'payment_type': 'payment_type',
-        'rent_agreement_date': 'rent_agreement_date',
-        'posting_date': 'posting_date',
-        'asset_title': 'asset_title',
-        'lease_end_date': 'lease_end_date',
-        'status': 'status',
-        'ibr': 'ibr',  # Form field 'ibr' maps to database column 'ibr'
-        'asset_id_code': 'asset_id_code',
-        'asset_class': 'asset_class',
-        'asset_location': 'asset_location',
-        'counterparty': 'counterparty',
-        'currency': 'currency',
-        'lease_start_date': 'lease_start_date',
-        'first_payment_date': 'first_payment_date',
-        'escalation_start_date': 'escalation_start_date',
-        'fair_value': 'fair_value',
-        'irr': 'irr',
-        'compound_months': 'compound_months',
-        'use_rate_type': 'use_rate_type',
-        'initial_direct_expenditure': 'initial_direct_expenditure',
-        'lease_incentive': 'lease_incentive',
-        'purchase_option_price': 'purchase_option_price',
-        'useful_life_months': 'useful_life_months',
-        'useful_life_end_date': 'useful_life_end_date',
-        'security_deposit_amount': 'security_deposit_amount',
-        'security_deposit_date': 'security_deposit_date',
-        'security_discount_rate': 'security_discount_rate',
-        'transition_date': 'transition_date',
-        'transition_option': 'transition_option',
-        'lease_classification': 'lease_classification',
-        'cost_center': 'cost_center',
-        'allocation': 'allocation',
-        'entered_by': 'entered_by',
-        'last_modified_date': 'last_modified_date',
-        'reviewed_by': 'reviewed_by',
-        'last_reviewed_date': 'last_reviewed_date',
-        'judgements': 'judgements',
-        'termination_date': 'termination_date',
-        'termination_penalty': 'termination_penalty',
-        # New fields
-        'tenure_months': 'tenure_months',
-        'tenure_days_input': 'tenure_days_input',
-        'has_renewal_option': 'has_renewal_option',
-        'renewal_start_date': 'renewal_start_date',
-        'renewal_end_date': 'renewal_end_date',
-        'renewal_term': 'renewal_term',
-        'has_termination_option': 'has_termination_option',
-        'lease_classification_usgaap': 'lease_classification_usgaap',
-        'scope_exemption_applied': 'scope_exemption_applied',
-        'sublease_start_date': 'sublease_start_date',
-        'sublease_end_date': 'sublease_end_date',
-        'sublease_payment_details': 'sublease_payment_details',
+        'agreement_title': 'agreement_title', 'company_name': 'company_name', 'escalation_percentage': 'escalation_percentage',
+        'rental_amount': 'rental_amount', 'escalation_frequency': 'escalation_frequency', 'rent_frequency': 'rent_frequency',
+        'payment_interval': 'payment_interval', 'pay_day_of_month': 'pay_day_of_month', 'rent_accrual_day': 'rent_accrual_day',
+        'payment_type': 'payment_type', 'rent_agreement_date': 'rent_agreement_date', 'posting_date': 'posting_date',
+        'asset_title': 'asset_title', 'lease_end_date': 'lease_end_date', 'status': 'status', 'ibr': 'ibr',
+        'asset_id_code': 'asset_id_code', 'asset_class': 'asset_class', 'asset_location': 'asset_location',
+        'counterparty': 'counterparty', 'currency': 'currency', 'lease_start_date': 'lease_start_date',
+        'first_payment_date': 'first_payment_date', 'escalation_start_date': 'escalation_start_date', 'fair_value': 'fair_value',
+        'irr': 'irr', 'compound_months': 'compound_months', 'use_rate_type': 'use_rate_type',
+        'initial_direct_expenditure': 'initial_direct_expenditure', 'lease_incentive': 'lease_incentive',
+        'purchase_option_price': 'purchase_option_price', 'useful_life_months': 'useful_life_months',
+        'useful_life_end_date': 'useful_life_end_date', 'security_deposit_amount': 'security_deposit_amount',
+        'security_deposit_date': 'security_deposit_date', 'security_discount_rate': 'security_discount_rate',
+        'transition_date': 'transition_date', 'transition_option': 'transition_option', 'lease_classification': 'lease_classification',
+        'cost_center': 'cost_center', 'allocation': 'allocation', 'entered_by': 'entered_by',
+        'last_modified_date': 'last_modified_date', 'reviewed_by': 'reviewed_by', 'last_reviewed_date': 'last_reviewed_date',
+        'judgements': 'judgements', 'termination_date': 'termination_date', 'termination_penalty': 'termination_penalty',
+        'tenure_months': 'tenure_months', 'tenure_days_input': 'tenure_days_input', 'has_renewal_option': 'has_renewal_option',
+        'renewal_start_date': 'renewal_start_date', 'renewal_end_date': 'renewal_end_date', 'renewal_term': 'renewal_term',
+        'has_termination_option': 'has_termination_option', 'lease_classification_usgaap': 'lease_classification_usgaap',
+        'scope_exemption_applied': 'scope_exemption_applied', 'sublease_start_date': 'sublease_start_date',
+        'sublease_end_date': 'sublease_end_date', 'sublease_payment_details': 'sublease_payment_details',
     }
     
-    # Create mapped data
     mapped_data = {}
-    
     for key, value in lease_data.items():
-        if key == 'lease_id' or key == 'user_id':
+        if key in ['lease_id', 'user_id']:
             continue
-        
-        # Handle rental_schedule - convert to JSON string for storage
-        if key == 'rental_schedule' and value is not None:
+        if key in ['rental_schedule', 'sublease_payment_details'] and value is not None:
             import json
-            if isinstance(value, (list, dict)):
-                mapped_data['rental_schedule'] = json.dumps(value)
-            else:
-                mapped_data['rental_schedule'] = value
+            mapped_data[key] = json.dumps(value) if isinstance(value, (list, dict)) else value
             continue
-        
-        # Handle sublease_payment_details - convert to JSON string for storage
-        if key == 'sublease_payment_details' and value is not None:
-            import json
-            if isinstance(value, (list, dict)):
-                mapped_data['sublease_payment_details'] = json.dumps(value)
-            else:
-                mapped_data['sublease_payment_details'] = value
-            continue
-        
-        # Use mapped name if exists, otherwise use original
         db_key = field_mapping.get(key, key)
         mapped_data[db_key] = value
-    
-    # Also map legacy fields - handle both directions
-    # Map agreement_title to lease_name if lease_name exists in database
+
     if 'agreement_title' in mapped_data and mapped_data.get('agreement_title'):
-        # Check if we need to also populate lease_name (old column name)
         mapped_data['lease_name'] = mapped_data.get('agreement_title')
     elif 'lease_name' in lease_data and lease_data.get('lease_name'):
-        # If only lease_name is provided, use it for both
         if 'agreement_title' not in mapped_data:
             mapped_data['agreement_title'] = lease_data.get('lease_name')
         mapped_data['lease_name'] = lease_data.get('lease_name')
     
-    # Ensure lease_name is not empty if it's required in database
-    # Always populate lease_name if the column exists (it's NOT NULL)
-    if 'lease_name' not in mapped_data or not mapped_data.get('lease_name') or mapped_data.get('lease_name') == '':
-        # Use agreement_title if available, otherwise use a default
-        if mapped_data.get('agreement_title') and mapped_data.get('agreement_title').strip() != '':
-            mapped_data['lease_name'] = mapped_data.get('agreement_title')
-        elif lease_data.get('agreement_title') and lease_data.get('agreement_title').strip() != '':
-            mapped_data['lease_name'] = lease_data.get('agreement_title')
-        else:
-            # Provide a default value if neither exists
-            mapped_data['lease_name'] = 'Untitled Lease'
+    if 'lease_name' not in mapped_data or not mapped_data.get('lease_name'):
+        mapped_data['lease_name'] = mapped_data.get('agreement_title') or 'Untitled Lease'
     
-    # Also ensure agreement_title is set if lease_name is available but agreement_title is not
-    if (not mapped_data.get('agreement_title') or mapped_data.get('agreement_title') == '') and mapped_data.get('lease_name'):
+    if not mapped_data.get('agreement_title') and mapped_data.get('lease_name'):
         mapped_data['agreement_title'] = mapped_data.get('lease_name')
     
     if 'counterparty' in lease_data and 'company_name' not in mapped_data:
         mapped_data['company_name'] = lease_data.get('counterparty')
     if 'end_date' in lease_data and 'lease_end_date' not in mapped_data:
         mapped_data['lease_end_date'] = lease_data.get('end_date')
-    
-    # Convert checkboxes to integers
-    for key in ['related_party', 'posting_date_same', 'has_purchase_option', 
-                'has_security_deposit', 'has_aro', 'short_term_usgaap', 
-                'short_term_ifrs', 'low_value_asset', 'scope_exemption',
-                'has_renewal_option', 'has_termination_option', 'scope_exemption_applied']:
+
+    for key in ['related_party', 'posting_date_same', 'has_purchase_option', 'has_security_deposit', 'has_aro', 'short_term_usgaap', 'short_term_ifrs', 'low_value_asset', 'scope_exemption', 'has_renewal_option', 'has_termination_option', 'scope_exemption_applied']:
         if key in mapped_data:
             mapped_data[key] = 1 if mapped_data[key] in [True, 'true', '1', 'on'] else 0
-    
-    # Handle dates - convert empty strings to None
-    date_fields = ['lease_start_date', 'lease_end_date', 'rent_agreement_date', 
-                   'posting_date', 'first_payment_date', 'escalation_start_date',
-                   'useful_life_end_date', 'security_deposit_date', 'transition_date',
-                   'last_modified_date', 'last_reviewed_date', 'termination_date',
-                   'renewal_start_date', 'renewal_end_date', 'sublease_start_date', 'sublease_end_date']
-    
+
+    date_fields = ['lease_start_date', 'lease_end_date', 'rent_agreement_date', 'posting_date', 'first_payment_date', 'escalation_start_date', 'useful_life_end_date', 'security_deposit_date', 'transition_date', 'last_modified_date', 'last_reviewed_date', 'termination_date', 'renewal_start_date', 'renewal_end_date', 'sublease_start_date', 'sublease_end_date']
     for field in date_fields:
-        if field in mapped_data and (mapped_data[field] == '' or mapped_data[field] is None):
+        if field in mapped_data and not mapped_data[field]:
             mapped_data[field] = None
-    
-    # Convert numeric strings to proper types
-    numeric_fields = ['escalation_percentage', 'rental_amount', 'escalation_frequency', 
-                     'rent_frequency', 'payment_interval', 'rent_accrual_day',
-                     'purchase_option_price', 'useful_life_months', 'security_deposit_amount',
-                     'security_discount_rate', 'aro_initial_estimate', 'ibr']
-    
+
+    numeric_fields = ['escalation_percentage', 'rental_amount', 'escalation_frequency', 'rent_frequency', 'payment_interval', 'rent_accrual_day', 'purchase_option_price', 'useful_life_months', 'security_deposit_amount', 'security_discount_rate', 'aro_initial_estimate', 'ibr']
     for field in numeric_fields:
         if field in mapped_data:
             value = mapped_data[field]
-            # Convert empty strings to None for numeric fields
-            if value == '' or value is None:
+            if value in ['', None]:
                 mapped_data[field] = None
             else:
                 try:
@@ -601,137 +565,67 @@ def save_lease(user_id: int, lease_data: Dict, role: str = 'user') -> int:
                     mapped_data[field] = None
     
     mapped_data['user_id'] = user_id
-    
-    # Use mapped_data instead of lease_data from here
     lease_data_to_save = mapped_data
-    
-    if lease_id:
-        # Update existing lease
-        update_fields = [k for k in lease_data_to_save.keys() if k != 'lease_id' and k != 'user_id']
-        if not update_fields:
-            logger.warning("No fields to update")
-            return lease_id
-        
-        # Filter out None values for optional fields that might cause issues
-        filtered_fields = []
-        filtered_values = []
-        for field in update_fields:
-            value = lease_data_to_save.get(field)
-            # Allow None values for IBR and other numeric fields, as well as boolean fields
-            if value is not None or field in ['related_party', 'posting_date_same', 'has_purchase_option', 
-                                             'has_security_deposit', 'has_aro', 'short_term_usgaap', 
-                                             'short_term_ifrs', 'low_value_asset', 'scope_exemption',
-                                             'ibr']:
-                filtered_fields.append(field)
-                filtered_values.append(value)
-        
-        if not filtered_fields:
-            logger.warning("No valid fields to update after filtering")
-            return lease_id
 
+    if lease_id:
+        # Update
+        update_fields = [k for k in lease_data_to_save.keys() if k not in ['lease_id', 'user_id']]
+        if not update_fields:
+            return lease_id, old_lease_data
+        
         with get_db_connection() as conn:
-            # Get existing columns from database
             cursor = conn.execute("PRAGMA table_info(leases)")
-            existing_columns = [row[1] for row in cursor.fetchall()]
+            existing_columns = {row[1] for row in cursor.fetchall()}
             
-            # Filter update fields to only include columns that exist
-            valid_update_fields = []
-            valid_update_values = []
-            for i, field in enumerate(filtered_fields):
-                if field in existing_columns:
-                    valid_update_fields.append(field)
-                    valid_update_values.append(filtered_values[i])
-                else:
-                    logger.warning(f"Skipping field '{field}' - column does not exist in database")
-            
+            valid_update_fields = {f for f in update_fields if f in existing_columns}
             if not valid_update_fields:
-                logger.warning("No valid fields to update after filtering for existing columns")
-                return lease_id
-            
-            set_clause = ', '.join([f"{f} = ?" for f in valid_update_fields])
-            set_clause += ", updated_at = CURRENT_TIMESTAMP"
-            
-            update_values = valid_update_values.copy()
+                return lease_id, old_lease_data
+
+            set_clause = ', '.join([f"{f} = ?" for f in valid_update_fields]) + ", updated_at = CURRENT_TIMESTAMP"
+            update_values = [lease_data_to_save.get(f) for f in valid_update_fields]
             update_values.append(lease_id)
             
-            # Log IBR update for debugging
-            if 'ibr' in valid_update_fields:
-                ibr_index = valid_update_fields.index('ibr')
-                logger.info(f"📝 Updating IBR for lease {lease_id}: {valid_update_values[ibr_index]}")
-
-            if role == 'admin':
-                logger.info(f"📝 ADMIN UPDATE SQL: UPDATE leases SET {set_clause} WHERE lease_id = ?")
-                logger.info(f"📝 UPDATE values: {update_values}")
-                conn.execute(
-                    f"UPDATE leases SET {set_clause} WHERE lease_id = ?",
-                    update_values
-                )
-            else:
+            if role != 'admin':
                 update_values.append(user_id)
-                logger.info(f"📝 UPDATE SQL: UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?")
-                logger.info(f"📝 UPDATE values: {update_values}")
-                conn.execute(
-                    f"UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?",
-                    update_values
-                )
-            conn.commit()
-            
-            # Verify the update
-            updated_row = conn.execute(
-                "SELECT ibr FROM leases WHERE lease_id = ?",
-                (lease_id,)
-            ).fetchone()
-            if updated_row:
-                logger.info(f"✅ Verified IBR after update: {updated_row[0]}")
-        return lease_id
+                conn.execute(f"UPDATE leases SET {set_clause} WHERE lease_id = ? AND user_id = ?", update_values)
+            else:
+                conn.execute(f"UPDATE leases SET {set_clause} WHERE lease_id = ?", update_values)
+        
+        if old_lease_data:
+            user = get_user(user_id)
+            username = user.get('username', str(user_id))
+            for key, new_value in lease_data_to_save.items():
+                if key in ['user_id', 'lease_id', 'created_at', 'updated_at']:
+                    continue
+                old_value = old_lease_data.get(key)
+                if str(old_value) != str(new_value):
+                    add_data_change_audit_log(lease_id, user_id, username, key, old_value, new_value, action='UPDATE')
+        
+        return lease_id, old_lease_data
     else:
-        # Create new lease
-        fields = [k for k in lease_data_to_save.keys() if k != 'lease_id']
-        # Filter out None values for fields that can't be None
-        filtered_fields = []
-        filtered_values = []
-        for field in fields:
-            value = lease_data_to_save.get(field)
-            # Include field even if None for optional fields
-            filtered_fields.append(field)
-            filtered_values.append(value)
-        
-        if not filtered_fields:
-            logger.error("No fields to insert")
-            raise ValueError("No fields to insert into leases table")
-        
+        # Create
         with get_db_connection() as conn:
-            # Get existing columns from database
             cursor = conn.execute("PRAGMA table_info(leases)")
-            existing_columns = [row[1] for row in cursor.fetchall()]
+            existing_columns = {row[1] for row in cursor.fetchall()}
             
-            # Filter fields to only include columns that exist in database
-            valid_fields = []
-            valid_values = []
-            for i, field in enumerate(filtered_fields):
-                if field in existing_columns:
-                    valid_fields.append(field)
-                    valid_values.append(filtered_values[i])
-                else:
-                    logger.warning(f"Skipping field '{field}' - column does not exist in database")
-            
+            valid_fields = {f for f in lease_data_to_save.keys() if f in existing_columns}
             if not valid_fields:
-                logger.error("No valid fields to insert after filtering for existing columns")
-                raise ValueError("No valid fields to insert into leases table")
-            
+                raise ValueError("No valid fields to insert")
+
             placeholders = ', '.join(['?' for _ in valid_fields])
+            field_names = ', '.join(valid_fields)
+            field_values = [lease_data_to_save.get(f) for f in valid_fields]
             
-            try:
-                cursor = conn.execute(
-                    f"INSERT INTO leases ({', '.join(valid_fields)}) VALUES ({placeholders})",
-                    valid_values
-                )
-                return cursor.lastrowid
-            except sqlite3.OperationalError as e:
-                logger.error(f"Error inserting lease: {e}")
-                logger.error(f"Fields being inserted: {valid_fields}")
-                logger.error(f"Values: {valid_values[:5]}...")  # Log first 5 values
-                raise
+            cursor = conn.execute(f"INSERT INTO leases ({field_names}) VALUES ({placeholders})", field_values)
+            new_lease_id = cursor.lastrowid
+
+        user = get_user(user_id)
+        username = user.get('username', str(user_id))
+        for key, value in lease_data_to_save.items():
+            if key not in ['user_id', 'lease_id']:
+                add_data_change_audit_log(new_lease_id, user_id, username, key, None, value, action='CREATE')
+        
+        return new_lease_id, old_lease_data
 
 
 def get_lease(lease_id: int, user_id: Optional[int] = None) -> Optional[Dict]:

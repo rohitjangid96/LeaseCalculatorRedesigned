@@ -173,3 +173,17 @@ button, .btn {
     border-top: 1px solid #eee;
     text-align: right;
 }
+
+.close-button {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}

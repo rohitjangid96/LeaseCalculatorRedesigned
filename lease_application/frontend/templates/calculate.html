@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         /* Calculate page-specific styles - Clean Minimal Modern UI */
         .form-section {
@@ -427,6 +429,7 @@
 
                         <div class="action-buttons" id="actionButtons" style="display: none; margin-top: 30px;">
                             <button class="btn-primary" onclick="exportToExcel()">📥 Export to Excel</button>
+                            <button class="btn-secondary" onclick="openEmailModal()">📧 Email Report</button>
                         </div>
                     </div>
 
@@ -505,6 +508,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
     <script src="{{ url_for('static', filename='js/calculate.js') }}"></script>
     <script>
         function toggleSidebar() {

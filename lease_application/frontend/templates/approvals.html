@@ -8,19 +8,12 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/header.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 </head>
 <body>
     <div class="app-container">
-        <!-- Left Sidebar Navigation -->
-        <div class="sidebar">
-            <nav class="sidebar-nav">
-                <a href="/dashboard.html" class="nav-item"><i class="fas fa-tachometer-alt nav-icon"></i><span>Dashboard</span></a>
-                <a href="/lease_form.html" class="nav-item"><i class="fas fa-file-alt nav-icon"></i><span>New Lease</span></a>
-                <a href="/approvals.html" class="nav-item active"><i class="fas fa-check-square nav-icon"></i><span>Approvals</span></a>
-                <a href="/consolidate.html" class="nav-item"><i class="fas fa-chart-pie nav-icon"></i><span>Consolidated Reports</span></a>
-                <a href="/admin.html" class="nav-item"><i class="fas fa-user-shield nav-icon"></i><span>Admin</span></a>
-            </nav>
-        </div>
+        {% include 'sidebar.html' %}
 
         <div class="main-content">
             {% include 'header.html' %}
@@ -56,6 +49,7 @@
         </div>
     </div>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modal.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 
     <!-- Rejection Reason Modal -->
@@ -176,7 +170,7 @@
                 closeApprovalModal();
                 loadApprovals();
             } else {
-                alert(j.error || 'Failed to approve');
+                showAlert(j.error || 'Failed to approve', 'error');
             }
         }
 
@@ -194,7 +188,7 @@
             if (!currentLeaseIdForAction) return;
             const reason = document.getElementById('rejectionReason').value || '';
             if (!reason) {
-                alert('Reason for rejection is required.');
+                showAlert('Reason for rejection is required.', 'warning');
                 return;
             }
             const r = await fetch(`/api/leases/${currentLeaseIdForAction}/reject`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) });
@@ -203,7 +197,7 @@
                 closeRejectionModal();
                 loadApprovals();
             } else {
-                alert(j.error || 'Failed to reject');
+                showAlert(j.error || 'Failed to reject', 'error');
             }
         }
 

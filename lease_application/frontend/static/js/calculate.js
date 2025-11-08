@@ -993,6 +993,167 @@ function showError(message) {
     showModal('Error', message);
 }
 
+function openEmailModal() {
+    const emailModal = document.getElementById('emailModal');
+    const emailTo = document.getElementById('emailTo');
+    const emailSubject = document.getElementById('emailSubject');
+    const emailBody = document.getElementById('emailBody');
+
+    // Pre-fill with logged-in user's email
+    const currentUser = JSON.parse(sessionStorage.getItem('currentUser'));
+    if (currentUser && currentUser.email) {
+        emailTo.value = currentUser.email;
+    }
+
+    emailSubject.value = 'Lease Calculation Report';
+    emailBody.value = 'Please find the attached lease calculation report.';
+    emailModal.style.display = 'block';
+}
+
+function closeEmailModal() {
+    const emailModal = document.getElementById('emailModal');
+    emailModal.style.display = 'none';
+}
+
+async function sendEmail() {
+    const to_email = document.getElementById('emailTo').value;
+    const subject = document.getElementById('emailSubject').value;
+    const body = document.getElementById('emailBody').value;
+
+    // Show loading modal
+    Swal.fire({
+        title: 'Sending Email...',
+        text: 'Please wait while the report is being sent.',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+
+    // Generate the Excel file content
+    const wb = generateExcelWorkbook();
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+
+    try {
+        const response = await fetch('/api/send_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                to_email,
+                subject,
+                body,
+                attachment_content: wbout,
+                attachment_filename: 'Lease_Calculation_Report.xlsx'
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            Swal.close();
+            showAlert('Email sent successfully!', 'success');
+            closeEmailModal();
+        } else {
+            Swal.close();
+            showAlert(`Error sending email: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        Swal.close();
+        showAlert(`Error sending email: ${error.message}`, 'error');
+    }
+}
+
+function generateExcelWorkbook() {
+    const today = new Date();
+    
+    // Get data from displayed tables
+    const scheduleData = Array.from(document.querySelectorAll('#scheduleBody tr')).map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            'Date': cells[0].textContent,
+            'Rental': cells[1].textContent,
+            'Principal': cells[2].textContent,
+            'PV Factor': cells[3].textContent,
+            'Interest': cells[4].textContent,
+            'Lease Liability': cells[5].textContent,
+            'Remaining Balance': cells[6].textContent,
+            'PV of Rent': cells[7].textContent,
+            'ROU Asset': cells[8].textContent,
+            'Depreciation': cells[9].textContent,
+            'Change ROU': cells[10].textContent,
+            'Security PV': cells[11].textContent,
+            'ARO Gross': cells[12].textContent,
+            'ARO Interest': cells[13].textContent,
+            'ARO Provision': cells[14].textContent
+        };
+    });
+
+    const journalData = Array.from(document.querySelectorAll('#journalBody tr')).map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            'Account Code': cells[0].textContent,
+            'Account Name': cells[1].textContent,
+            'BS/PL': cells[2].textContent,
+            'Result Period': cells[3].textContent,
+            'Previous Period': cells[4].textContent,
+            'Incremental': cells[5].textContent,
+            'US-GAAP': cells[6].textContent,
+            'IFRS Adjustment': cells[7].textContent
+        };
+    });
+    
+    // Get summary data from displayed HTML (using <strong> and <span> tags)
+    const summaryValues = {};
+    document.querySelectorAll('#summaryGrid .summary-item').forEach(item => {
+        const strong = item.querySelector('strong');
+        const span = item.querySelector('span');
+        if (strong && span) {
+            const label = strong.textContent.trim();
+            const value = span.textContent.trim();
+            // Skip items with specific styling (grid-column, etc.)
+            const hasGridColumn = item.style.gridColumn || item.getAttribute('style')?.includes('grid-column');
+            if (!hasGridColumn && label && value) {
+                summaryValues[label] = value;
+            }
+        }
+    });
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    
+    // 1. ENHANCED Summary Sheet
+    const summarySheetData = [
+        ['LEASE CALCULATION SUMMARY REPORT'],
+        [],
+        ['Report Information'],
+        ['Generated Date', today.toLocaleDateString() + ' ' + today.toLocaleTimeString()],
+        [],
+        ['Financial Summary'],
+        ...Object.entries(summaryValues).map(([label, value]) => [label, value]),
+    ];
+    const wsSummary = XLSX.utils.aoa_to_sheet(summarySheetData);
+    wsSummary['!cols'] = [{ wch: 30 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+    
+    // 2. Schedule Sheet with formatting
+    const wsSchedule = XLSX.utils.json_to_sheet(scheduleData);
+    wsSchedule['!cols'] = [
+        { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 },
+        { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+        { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsSchedule, 'Schedule');
+    
+    // 3. Journal Entries Sheet with formatting
+    const wsJournal = XLSX.utils.json_to_sheet(journalData);
+    wsJournal['!cols'] = [{ wch: 12 }, { wch: 35 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, wsJournal, 'Journal Entries');
+
+    return wb;
+}
+
 function exportToExcel() {
     const today = new Date();
     

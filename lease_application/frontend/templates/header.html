@@ -16,3 +16,24 @@
         </button>
     </div>
 </header>
+
+<!-- Email Modal -->
+<div id="emailModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close-button" onclick="closeEmailModal()">&times;</span>
+        <h2>Send Report via Email</h2>
+        <div class="form-group">
+            <label for="emailTo">Recipient Email:</label>
+            <input type="email" id="emailTo" placeholder="Enter recipient's email">
+        </div>
+        <div class="form-group">
+            <label for="emailSubject">Subject:</label>
+            <input type="text" id="emailSubject" placeholder="Enter email subject">
+        </div>
+        <div class="form-group">
+            <label for="emailBody">Body:</label>
+            <textarea id="emailBody" rows="5" placeholder="Enter email body"></textarea>
+        </div>
+        <button class="btn-primary" onclick="sendEmail()">Send Email</button>
+    </div>
+</div>

@@ -215,6 +215,17 @@ def create_app(config_name=None):
         except Exception as e:
             logger.error(f"Error rendering admin.html: {e}")
             return f"Error loading admin page: {e}", 500
+
+    # Audit Log page
+    @app.route('/audit_log')
+    @app.route('/audit_log.html')
+    @require_login
+    def audit_log_page():
+        try:
+            return render_template('audit_log.html')
+        except Exception as e:
+            logger.error(f"Error rendering audit_log.html: {e}")
+            return f"Error loading audit log page: {e}", 500
     
     logger.info("✅ Application created successfully")
     return app

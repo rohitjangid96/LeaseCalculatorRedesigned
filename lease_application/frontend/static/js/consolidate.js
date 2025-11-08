@@ -734,3 +734,154 @@ function exportToExcel() {
 
 // Expose globally
 window.exportToExcel = exportToExcel;
+
+function openEmailModal() {
+    const emailModal = document.getElementById('emailModal');
+    const emailTo = document.getElementById('emailTo');
+    const emailSubject = document.getElementById('emailSubject');
+    const emailBody = document.getElementById('emailBody');
+
+    // Pre-fill with logged-in user's email
+    const currentUser = JSON.parse(sessionStorage.getItem('currentUser'));
+    if (currentUser && currentUser.email) {
+        emailTo.value = currentUser.email;
+    }
+
+    emailSubject.value = 'Consolidated Lease Report';
+    emailBody.value = 'Please find the attached consolidated lease report.';
+    emailModal.style.display = 'block';
+}
+
+function closeEmailModal() {
+    const emailModal = document.getElementById('emailModal');
+    emailModal.style.display = 'none';
+}
+
+async function sendEmail() {
+    const to_email = document.getElementById('emailTo').value;
+    const subject = document.getElementById('emailSubject').value;
+    const body = document.getElementById('emailBody').value;
+
+    // Show loading modal
+    Swal.fire({
+        title: 'Sending Email...',
+        text: 'Please wait while the report is being sent.',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+
+    // Generate the Excel file content
+    const wb = generateExcelWorkbook();
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+
+    try {
+        const response = await fetch('/api/send_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+                to_email,
+                subject,
+                body,
+                attachment_content: wbout,
+                attachment_filename: 'Consolidated_Report.xlsx'
+            })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            Swal.close();
+            showAlert('Email sent successfully!', 'success');
+            closeEmailModal();
+        } else {
+            Swal.close();
+            showAlert(`Error sending email: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        Swal.close();
+        showAlert(`Error sending email: ${error.message}`, 'error');
+    }
+}
+
+function generateExcelWorkbook() {
+    const today = new Date();
+    
+    // Get data from displayed tables
+    const resultsData = Array.from(document.querySelectorAll('#resultsBody tr')).map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            'Lease ID': cells[0]?.textContent || '',
+            'Description': cells[1]?.textContent || '',
+            'Asset Class': cells[2]?.textContent || '',
+            'Opening Liability': cells[3]?.textContent || '',
+            'Opening ROU Asset': cells[4]?.textContent || '',
+            'Interest Expense': cells[5]?.textContent || '',
+            'Depreciation': cells[6]?.textContent || '',
+            'Rent Paid': cells[7]?.textContent || '',
+            'Closing Liability Total': cells[8]?.textContent || '',
+            'Closing ROU Asset': cells[9]?.textContent || '',
+            'Gain/(Loss) P&L': cells[10]?.textContent || ''
+        };
+    });
+
+    const journalData = Array.from(document.querySelectorAll('#journalBody tr')).map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            'Account Code': cells[0]?.textContent || '',
+            'Account Name': cells[1]?.textContent || '',
+            'BS/PL': cells[2]?.textContent || '',
+            'Opening Balance': cells[3]?.textContent || '',
+            'Previous Period': cells[4]?.textContent || '',
+            'Result Period': cells[5]?.textContent || '',
+            'Incremental': cells[6]?.textContent || '',
+            'IFRS Adjustment': cells[7]?.textContent || '',
+            'US-GAAP': cells[8]?.textContent || ''
+        };
+    });
+    
+    // Get aggregated totals
+    const totalsData = {};
+    document.querySelectorAll('#aggregatedTotalsGrid .summary-item').forEach(item => {
+        const strong = item.querySelector('strong');
+        const span = item.querySelector('span');
+        if (strong && span) {
+            totalsData[strong.textContent.trim()] = span.textContent.trim();
+        }
+    });
+    
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    
+    // 1. Aggregated Totals Sheet
+    const totalsSheetData = [
+        ['CONSOLIDATED LEASE REPORT'],
+        [],
+        ['Report Information'],
+        ['Generated Date', today.toLocaleDateString() + ' ' + today.toLocaleTimeString()],
+        [],
+        ['Aggregated Totals'],
+        ...Object.entries(totalsData).map(([label, value]) => [label, value]),
+    ];
+    const wsTotals = XLSX.utils.aoa_to_sheet(totalsSheetData);
+    wsTotals['!cols'] = [{ wch: 30 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, wsTotals, 'Aggregated Totals');
+    
+    // 2. Individual Results Sheet
+    const wsResults = XLSX.utils.json_to_sheet(resultsData);
+    wsResults['!cols'] = [
+        { wch: 10 }, { wch: 30 }, { wch: 15 }, { wch: 18 }, { wch: 18 },
+        { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 15 }
+    ];
+    XLSX.utils.book_append_sheet(wb, wsResults, 'Individual Results');
+    
+    // 3. Consolidated Journal Entries Sheet
+    const wsJournal = XLSX.utils.json_to_sheet(journalData);
+    wsJournal['!cols'] = [{ wch: 12 }, { wch: 35 }, { wch: 8 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, wsJournal, 'Consolidated Journals');
+
+    return wb;
+}
