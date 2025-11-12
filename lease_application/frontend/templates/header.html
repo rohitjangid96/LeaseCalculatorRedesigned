@@ -4,6 +4,15 @@
         <a href="/dashboard.html" class="logo-link"><h1 class="logo">LeaseFlow</h1></a>
     </div>
     <div class="header-right">
+        <div id="notification-area">
+            <i class="fas fa-bell notification-bell"></i>
+            <span id="notification-count" class="badge">0</span>
+            <div id="notification-dropdown" class="hidden">
+                <div class="notification-list-header">Notifications</div>
+                <div class="notification-list-body"></div>
+                <div class="notification-list-footer" onclick="dismissAllNotifications()">Dismiss All</div>
+            </div>
+        </div>
         <div class="user-menu" onclick="toggleUserMenu()">
             <span id="username" class="username">User</span>
             <i class="fas fa-caret-down"></i>

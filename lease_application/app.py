@@ -19,10 +19,13 @@ from lease_application.auth.auth import require_login, require_admin
 from lease_application.api import api_bp
 from lease_application.pdf_upload_backend import pdf_bp
 from lease_application.calculate_backend import calc_bp
-from lease_application.lease_management import copy_lease
+from lease_application import lease_management
 
 # Import database
 from lease_application import database
+
+# Import notification service
+from lease_application.lease_management.notifications import run_daily_date_check
 
 
 def setup_logging(log_dir: Path):
@@ -106,6 +109,36 @@ def create_app(config_name=None):
     app.register_blueprint(calc_bp)
     logger.info("✅ Blueprints registered")
 
+    # Initialize APScheduler for background tasks
+    try:
+        from flask_apscheduler import APScheduler
+        scheduler = APScheduler()
+        scheduler.init_app(app)
+        scheduler.start()
+
+        # Add notification check job - run immediately on startup and then daily at midnight
+        scheduler.add_job(
+            id='daily_notification_check',
+            func=run_daily_date_check,
+            trigger='interval',
+            hours=24,  # Run every 24 hours
+            max_instances=1,
+            replace_existing=True
+        )
+
+        # Run notification check immediately on startup
+        try:
+            run_daily_date_check()
+            logger.info("✅ Initial notification check completed")
+        except Exception as e:
+            logger.error(f"❌ Error running initial notification check: {e}")
+
+        logger.info("✅ Background scheduler initialized with notification check job")
+    except ImportError:
+        logger.warning("⚠️ Flask-APScheduler not available. Background notifications disabled.")
+    except Exception as e:
+        logger.error(f"❌ Error initializing scheduler: {e}")
+
     # Bootstrap: make user 'Rohit' admin if exists
     try:
         user = database.get_user_by_username('Rohit')
@@ -151,7 +184,7 @@ def create_app(config_name=None):
     @app.route('/api/leases/<int:lease_id>/copy', methods=['POST'])
     @require_login
     def copy_lease_route(lease_id):
-        return copy_lease(lease_id)
+        return lease_management.copy_lease(lease_id)
 
     # Lease Form page
     @app.route('/lease_form')

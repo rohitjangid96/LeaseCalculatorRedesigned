@@ -128,6 +128,36 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Notification settings table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trigger_field TEXT NOT NULL,
+                days_in_advance INTEGER NOT NULL,
+                recipient_role TEXT NOT NULL,
+                message_template TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # User notifications table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_notifications (
+                notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lease_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                target_date TEXT NOT NULL,
+                sent_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_read INTEGER DEFAULT 0,
+                is_dismissed INTEGER DEFAULT 0,
+                FOREIGN KEY (lease_id) REFERENCES leases (lease_id),
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        """)
         
         # Add role and is_active columns if they don't exist (migration for existing databases)
         try:
@@ -707,6 +737,45 @@ def delete_lease(lease_id: int, user_id: int) -> bool:
             (lease_id, user_id)
         )
         return cursor.rowcount > 0
+
+
+# ============ NOTIFICATION SETTINGS ============
+
+def get_notification_settings() -> list:
+    """Get all notification settings"""
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM notification_settings ORDER BY rule_id").fetchall()
+        return [dict(row) for row in rows]
+
+def create_notification_setting(trigger_field: str, days_in_advance: int, recipient_role: str, message_template: str) -> int:
+    """Create a new notification setting"""
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO notification_settings (trigger_field, days_in_advance, recipient_role, message_template) VALUES (?, ?, ?, ?)",
+            (trigger_field, days_in_advance, recipient_role, message_template)
+        )
+        return cursor.lastrowid
+
+def update_notification_setting(rule_id: int, trigger_field: str, days_in_advance: int, recipient_role: str, message_template: str, is_active: bool) -> bool:
+    """Update an existing notification setting"""
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE notification_settings SET trigger_field = ?, days_in_advance = ?, recipient_role = ?, message_template = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE rule_id = ?",
+            (trigger_field, days_in_advance, recipient_role, message_template, 1 if is_active else 0, rule_id)
+        )
+        return cursor.rowcount > 0
+
+def delete_notification_setting(rule_id: int) -> bool:
+    """Delete a notification setting"""
+    with get_db_connection() as conn:
+        cursor = conn.execute("DELETE FROM notification_settings WHERE rule_id = ?", (rule_id,))
+        return cursor.rowcount > 0
+
+def get_notification_setting(rule_id: int) -> Optional[Dict]:
+    """Get a specific notification setting by ID"""
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM notification_settings WHERE rule_id = ?", (rule_id,)).fetchone()
+        return dict(row) if row else None
 
 
 # Initialize database on import

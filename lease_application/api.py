@@ -963,7 +963,7 @@ def send_report():
     """Send a report via email"""
     user_id = session['user_id']
     logger.info(f"📧 POST /api/send_report - User {user_id} sending report")
-    
+
     try:
         data = request.json or {}
         to_email = data.get('to_email')
@@ -1012,4 +1012,168 @@ def send_report():
         return jsonify({'success': True, 'message': 'Email sent successfully'})
     except Exception as e:
         logger.error(f"Error sending email: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============ NOTIFICATION SETTINGS ============
+@api_bp.route('/notifications/settings', methods=['GET'])
+@require_login
+@require_admin
+def get_notification_settings():
+    """Get all notification settings"""
+    try:
+        settings = database.get_notification_settings()
+        return jsonify({'success': True, 'settings': settings})
+    except Exception as e:
+        logger.error(f"Error fetching notification settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/notifications/settings', methods=['POST'])
+@require_login
+@require_admin
+def create_notification_setting():
+    """Create a new notification setting"""
+    try:
+        data = request.json or {}
+        trigger_field = data.get('trigger_field')
+        days_in_advance = data.get('days_in_advance')
+        recipient_role = data.get('recipient_role')
+        message_template = data.get('message_template')
+
+        if not all([trigger_field, days_in_advance is not None, recipient_role, message_template]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        rule_id = database.create_notification_setting(trigger_field, days_in_advance, recipient_role, message_template)
+        return jsonify({'success': True, 'rule_id': rule_id, 'message': 'Notification setting created successfully'}), 201
+    except Exception as e:
+        logger.error(f"Error creating notification setting: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/notifications/settings/<int:rule_id>', methods=['PUT'])
+@require_login
+@require_admin
+def update_notification_setting(rule_id):
+    """Update an existing notification setting"""
+    try:
+        data = request.json or {}
+        trigger_field = data.get('trigger_field')
+        days_in_advance = data.get('days_in_advance')
+        recipient_role = data.get('recipient_role')
+        message_template = data.get('message_template')
+        is_active = data.get('is_active', True)
+
+        if not all([trigger_field, days_in_advance is not None, recipient_role, message_template]):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
+
+        success = database.update_notification_setting(rule_id, trigger_field, days_in_advance, recipient_role, message_template, is_active)
+        if success:
+            return jsonify({'success': True, 'message': 'Notification setting updated successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Notification setting not found'}), 404
+    except Exception as e:
+        logger.error(f"Error updating notification setting: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/notifications/settings/<int:rule_id>', methods=['DELETE'])
+@require_login
+@require_admin
+def delete_notification_setting(rule_id):
+    """Delete a notification setting"""
+    try:
+        success = database.delete_notification_setting(rule_id)
+        if success:
+            return jsonify({'success': True, 'message': 'Notification setting deleted successfully'})
+        else:
+            return jsonify({'success': False, 'error': 'Notification setting not found'}), 404
+    except Exception as e:
+        logger.error(f"Error deleting notification setting: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============ USER NOTIFICATION INBOX ============
+@api_bp.route('/notifications/inbox', methods=['GET'])
+@require_login
+def get_user_notifications():
+    """Get current user's notifications"""
+    user_id = session['user_id']
+    logger.info(f"📬 GET /api/notifications/inbox - User {user_id} fetching notifications")
+
+    try:
+        from .lease_management.notifications import get_user_notifications
+        notifications = get_user_notifications(user_id)
+
+        # Count unread notifications
+        unread_count = sum(1 for n in notifications if not n['is_read'])
+
+        return jsonify({
+            'success': True,
+            'notifications': notifications,
+            'unread_count': unread_count
+        })
+    except Exception as e:
+        logger.error(f"Error fetching user notifications: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/notifications/<int:notification_id>/read', methods=['POST'])
+@require_login
+def mark_notification_read(notification_id):
+    """Mark a notification as read"""
+    user_id = session['user_id']
+    logger.info(f"👁️ POST /api/notifications/{notification_id}/read - User {user_id}")
+
+    try:
+        from .lease_management.notifications import mark_notification_read
+        success = mark_notification_read(notification_id, user_id)
+
+        if success:
+            return jsonify({'success': True, 'message': 'Notification marked as read'})
+        else:
+            return jsonify({'success': False, 'error': 'Notification not found or access denied'}), 404
+    except Exception as e:
+        logger.error(f"Error marking notification as read: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/notifications/<int:notification_id>/dismiss', methods=['POST'])
+@require_login
+def dismiss_user_notification(notification_id):
+    """Dismiss a notification"""
+    user_id = session['user_id']
+    logger.info(f"🗑️ POST /api/notifications/{notification_id}/dismiss - User {user_id}")
+
+    try:
+        from .lease_management.notifications import dismiss_notification
+        success = dismiss_notification(notification_id, user_id)
+
+        if success:
+            return jsonify({'success': True, 'message': 'Notification dismissed'})
+        else:
+            return jsonify({'success': False, 'error': 'Notification not found or access denied'}), 404
+    except Exception as e:
+        logger.error(f"Error dismissing notification: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@api_bp.route('/notifications/dismiss_all', methods=['POST'])
+@require_login
+def dismiss_all_user_notifications():
+    """Dismiss all notifications for current user"""
+    user_id = session['user_id']
+    logger.info(f"🗑️ POST /api/notifications/dismiss_all - User {user_id}")
+
+    try:
+        from .lease_management.notifications import dismiss_all_notifications
+        count = dismiss_all_notifications(user_id)
+
+        return jsonify({
+            'success': True,
+            'message': f'Dismissed {count} notifications',
+            'dismissed_count': count
+        })
+    except Exception as e:
+        logger.error(f"Error dismissing all notifications: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

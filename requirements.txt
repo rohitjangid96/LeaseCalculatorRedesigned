@@ -3,6 +3,7 @@
 # Core Web Framework
 Flask>=2.0.0
 flask-cors>=3.0.0
+Flask-APScheduler>=1.12.0
 
 # Authentication & Security
 bcrypt>=4.0.0
@@ -13,7 +14,7 @@ python-dateutil>=2.8.0
 
 # File Handling
 Werkzeug<3.0.0
-importlib-metadata<7.0.0
+importlib-metadata>=1.4.0
 
 # HTTP Requests (for tests)
 requests>=2.25.0

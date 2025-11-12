@@ -11,7 +11,7 @@ echo "📍 Working directory: $(pwd)"
 
 # Install dependencies if needed
 echo "📦 Checking dependencies..."
-pip3 install --user Flask flask-cors bcrypt cryptography python-dateutil werkzeug 2>&1 | grep -v "already satisfied" || true
+pip3 install --user Flask flask-cors Flask-APScheduler bcrypt cryptography python-dateutil werkzeug "importlib-metadata>=1.4.0" 2>&1 | grep -v "already satisfied" || true
 
 # Kill old processes on port 5001
 echo "🛑 Stopping existing processes..."
