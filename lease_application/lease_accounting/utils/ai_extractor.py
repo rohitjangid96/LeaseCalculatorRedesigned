@@ -311,11 +311,14 @@ For each field extracted, provide:
 {
   "field_name": "field_identifier",
   "extracted_value": "actual_value_from_document",
+  "confidence_score": 0.95,
   "page_number": 1,
   "bbox_normalized": [x_min, y_min, x_max, y_max]
 }
 
-Where bbox_normalized is in 0-1000 scale (bottom-left origin).
+Where:
+- confidence_score is a number between 0.0 and 1.0 indicating AI confidence in the extraction
+- bbox_normalized is in 0-1000 scale (bottom-left origin)
 
 **EXTRACTION TIPS:**
 - Dates: Convert "01/15/2025" to "2025-01-15", "January 15, 2025" to "2025-01-15"
@@ -328,7 +331,7 @@ Extract only fields you can confidently identify. Return null for fields not fou
 
 
 def _get_extraction_response_schema() -> dict:
-    """Get JSON schema for structured extraction response with bounding boxes"""
+    """Get JSON schema for structured extraction response with bounding boxes and confidence scores"""
     return {
         "type": "object",
         "properties": {
@@ -345,6 +348,13 @@ def _get_extraction_response_schema() -> dict:
                         "extracted_value": {
                             "type": "string",
                             "description": "The actual text value extracted from the PDF."
+                        },
+                        "confidence_score": {
+                            "type": "number",
+                            "description": "AI confidence score between 0.0 and 1.0 indicating certainty of the extraction. Use 0.8 for high confidence, 0.5 for medium, 0.3 for low.",
+                            "minimum": 0.0,
+                            "maximum": 1.0,
+                            "default": 0.8
                         },
                         "page_number": {
                             "type": "integer",
@@ -363,6 +373,7 @@ def _get_extraction_response_schema() -> dict:
                     "required": [
                         "field_name",
                         "extracted_value",
+                        "confidence_score",
                         "page_number",
                         "bbox_normalized"
                     ]
@@ -449,13 +460,14 @@ def _parse_ai_response_with_coordinates(response_text: str, pdf_dimensions: Opti
             for field_info in response_data['extracted_fields']:
                 field_name = field_info.get('field_name')
                 extracted_value = field_info.get('extracted_value')
+                confidence_score = field_info.get('confidence_score', 0.8)  # Default to 0.8 if not provided
                 page_number = field_info.get('page_number', 1)
                 bbox_normalized = field_info.get('bbox_normalized', [])
-                
+
                 if field_name and extracted_value:
                     # Store the extracted value
                     extracted_data[field_name] = extracted_value
-                    
+
                     # Convert normalized bbox (0-1000, bottom-left origin) to PDF points (top-left origin)
                     # Normalized: (0,0) = bottom-left, (1000,1000) = top-right
                     # PDF points: (0,0) = bottom-left, but we need top-left for highlighting
@@ -465,21 +477,22 @@ def _parse_ai_response_with_coordinates(response_text: str, pdf_dimensions: Opti
                         # Default to A4 if dimensions not available for this page
                         page_dims = {'width': 595.0, 'height': 842.0}
                     pdf_bbox = _convert_normalized_bbox_to_pdf_points(
-                        bbox_normalized, 
+                        bbox_normalized,
                         page_number,
                         pdf_width_points=page_dims['width'],
                         pdf_height_points=page_dims['height']
                     )
-                    
-                    # Store metadata with bounding boxes
+
+                    # Store metadata with bounding boxes and confidence scores
                     if field_name not in field_metadata:
                         field_metadata[field_name] = {
                             'field_name': field_name,
                             'extracted_value': extracted_value,
+                            'confidence_score': confidence_score,
                             'page_number': page_number,
                             'bounding_boxes': []
                         }
-                    
+
                     field_metadata[field_name]['bounding_boxes'].append(pdf_bbox)
         
         # If no fields were extracted from structured format, try to parse as regular extraction
@@ -489,16 +502,29 @@ def _parse_ai_response_with_coordinates(response_text: str, pdf_dimensions: Opti
             for key, value in response_data.items():
                 if key != 'extracted_fields' and value is not None and value != '':
                     extracted_data[key] = value
-        
+
         # Clean and validate extracted data
         cleaned_data = _clean_extracted_data(extracted_data)
-        
+
+        # Always create metadata with confidence scores for all extracted fields
+        # This ensures confidence scores are available even if AI doesn't provide them
+        for field_name in cleaned_data.keys():
+            if field_name not in ['_metadata', '_original_texts'] and field_name not in field_metadata:
+                # Field was extracted but no metadata - assign default confidence
+                field_metadata[field_name] = {
+                    'field_name': field_name,
+                    'extracted_value': cleaned_data[field_name],
+                    'confidence_score': 0.8,  # Default high confidence
+                    'page_number': 1,
+                    'bounding_boxes': []
+                }
+
         # Add metadata to response (but don't include it in the main data structure)
         # Metadata is stored separately and used later for highlighting
-        # Store it in a separate key that won't interfere with field population
-        if field_metadata:
-            cleaned_data['_metadata'] = field_metadata
-        
+        # Always include metadata, even if empty
+        cleaned_data['_metadata'] = field_metadata
+        print(f"DEBUG: Created metadata with {len(field_metadata)} fields: {list(field_metadata.keys())}")
+
         # Return cleaned data (frontend expects field values directly)
         # Remove _metadata from the count for field population purposes
         return cleaned_data
@@ -556,10 +582,10 @@ def _create_extraction_prompt(text: str) -> str:
 
 **CRITICAL:** For each field that has a value, provide BOTH the normalized value AND the EXACT ORIGINAL TEXT as it appears in the document.
 
-Return JSON in this format (use objects with "value" and "original_text" for each field):
+Return JSON in this format (use objects with "value", "original_text", and "confidence_score" for each field):
 {{
-  "description": {{"value": "lease description or title", "original_text": "exact text from PDF"}},
-  "asset_class": {{"value": "asset category/type", "original_text": "exact text from PDF"}},
+  "description": {{"value": "lease description or title", "original_text": "exact text from PDF", "confidence_score": 0.95}},
+  "asset_class": {{"value": "asset category/type", "original_text": "exact text from PDF", "confidence_score": 0.8}},
   "asset_id_code": {{"value": "asset identifier/code or null", "original_text": "exact text or null"}},
   "lease_start_date": {{"value": "start date in YYYY-MM-DD format or null", "original_text": "exact date text like 'March 1, 2002' or '03/01/2002'"}},
   "end_date": {{"value": "end date in YYYY-MM-DD format or null", "original_text": "exact date text from PDF"}},
@@ -624,24 +650,45 @@ def _parse_ai_response(response_text: str) -> Dict:
         # Check if new format with value/original_text objects
         extracted_data = {}
         original_texts = {}  # Store original texts for highlight matching
-        
+        confidence_scores = {}  # Store confidence scores from AI
+
         for field_name, field_value in raw_data.items():
             if isinstance(field_value, dict) and 'value' in field_value:
-                # New format: {"value": "...", "original_text": "..."}
+                # New format: {"value": "...", "original_text": "...", "confidence_score": 0.95}
                 extracted_data[field_name] = field_value['value']
                 original_texts[field_name] = field_value.get('original_text')
+                confidence_scores[field_name] = field_value.get('confidence_score', 0.8)
             else:
                 # Old format: just the value
                 extracted_data[field_name] = field_value
                 original_texts[field_name] = None
+                confidence_scores[field_name] = 0.8  # Default for old format
         
         # Clean up the data
         cleaned_data = _clean_extracted_data(extracted_data)
-        
+
         # Add original texts to metadata for highlight matching
         if original_texts:
             cleaned_data['_original_texts'] = original_texts
-        
+
+        # Create metadata with confidence scores from AI response
+        # This ensures confidence scores are available even if AI doesn't provide them
+        field_metadata = {}
+        for field_name in cleaned_data.keys():
+            if field_name not in ['_metadata', '_original_texts']:
+                # Use confidence score from AI response if available, otherwise default to 0.8
+                confidence_score = confidence_scores.get(field_name, 0.8)
+                field_metadata[field_name] = {
+                    'field_name': field_name,
+                    'extracted_value': cleaned_data[field_name],
+                    'confidence_score': confidence_score,
+                    'page_number': 1,
+                    'bounding_boxes': []
+                }
+
+        # Add metadata to response
+        cleaned_data['_metadata'] = field_metadata
+
         return cleaned_data
         
     except json.JSONDecodeError as e:
@@ -838,4 +885,3 @@ def get_extraction_schema() -> Dict[str, str]:
         "tenure": "Lease term in months.",
     }
     return field_descriptions
-

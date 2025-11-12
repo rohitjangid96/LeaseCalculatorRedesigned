@@ -419,7 +419,7 @@ def upload_and_extract_lease_data():
                 return jsonify({
                     "success": False,
                     "error": extracted_data['error']
-                }), 500
+                }), 200
             
             # Step 3: Map extracted values to bounding boxes using ORIGINAL TEXT from AI
             highlights = []
@@ -730,12 +730,34 @@ def upload_and_extract_lease_data():
             # Use blueprint prefix 'api.' since the route is in the api_bp blueprint
             pdf_url = url_for('api.static_files', filename=unique_filename)
             
+            # Extract confidence scores from metadata if available
+            confidence_scores = {}
+            if '_metadata' in extracted_data:
+                metadata = extracted_data['_metadata']
+                logger.debug(f"   📊 Found metadata with {len(metadata)} fields")
+                for field_name, field_info in metadata.items():
+                    if isinstance(field_info, dict) and 'confidence_score' in field_info:
+                        confidence_score = field_info['confidence_score']
+                        confidence_scores[field_name] = confidence_score
+                        logger.debug(f"   📊 Confidence score for {field_name}: {confidence_score}")
+                logger.debug(f"   📊 Total confidence scores extracted: {len(confidence_scores)}")
+
+            # If no confidence scores were extracted, create default ones for all extracted fields
+            if not confidence_scores:
+                logger.info(f"   📊 AI did not provide confidence scores, using default scores (0.8) for all fields")
+                for field_name, field_value in extracted_data.items():
+                    if field_name not in ['_metadata', '_original_texts'] and field_value is not None:
+                        confidence_scores[field_name] = 0.8  # Default high confidence
+                        logger.debug(f"   📊 Default confidence score for {field_name}: 0.8")
+                logger.info(f"   📊 Created {len(confidence_scores)} default confidence scores")
+
             # Return the result to the frontend
             return jsonify({
                 "success": True,
                 "data": extracted_data,
                 "highlights": highlights,
-                "pdf_url": pdf_url
+                "pdf_url": pdf_url,
+                "confidence_scores": confidence_scores
             }), 200
         
         except Exception as e:

@@ -828,6 +828,28 @@
                             <!-- Legend items will be populated dynamically -->
                         </div>
                     </div>
+
+                    <!-- AI Confidence Legend (shown when low-confidence fields exist) -->
+                    <div id="aiConfidenceLegend" class="ai-confidence-legend" style="display:none;">
+                        <div class="legend-header">
+                            <span>🤖 AI Confidence Alert</span>
+                        </div>
+                        <div class="confidence-legend-content">
+                            <p style="margin: 0 0 8px 0; font-size: 12px; color: #666;">
+                                Fields with low AI confidence scores are highlighted in red. Please review and verify these values.
+                            </p>
+                            <div class="confidence-indicators">
+                                <div class="confidence-indicator">
+                                    <span class="confidence-badge low">XX%</span>
+                                    <span class="indicator-text">Low confidence - requires verification</span>
+                                </div>
+                                <div class="confidence-indicator">
+                                    <span class="confidence-badge high">XX%</span>
+                                    <span class="indicator-text">High confidence - likely accurate</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="pdf-content">
                         <div class="pdf-placeholder" id="pdfPlaceholder">
                             <p>Upload a PDF to view here</p>

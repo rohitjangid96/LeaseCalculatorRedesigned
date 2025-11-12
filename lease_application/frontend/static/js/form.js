@@ -57,7 +57,7 @@ function manualInput() {
     }
 }
 
-// --- Global State for PDF.js ---
+ // --- Global State for PDF.js ---
 let pdfUrl = null;
 let highlightData = []; // Stores the highlights from the API
 let pdfDocument = null; // Stores the PDFJS document object
@@ -67,6 +67,8 @@ let isReviewMode = false; // Review mode state
 let fieldTypeColors = {}; // Field type color mapping
 let fieldHighlightMap = {}; // Maps form field names to their highlights
 let fileFromExtraction = null; // To hold the file from AI extraction
+let confidenceScores = {}; // Stores confidence scores for each field
+let CONFIDENCE_THRESHOLD = 0.7; // Global confidence threshold for flagging low-confidence fields
 // --- Maker-Checker: State ---
 // currentLeaseId is declared at top of file; do not redeclare here
 let currentUserRole = 'user';
@@ -548,36 +550,46 @@ async function uploadAndExtract(file) {
         
         if (result.success) {
             updateLoaderStep(3); // Populating Form
-            
+
+            // Debug: Log the full response to see what we're getting
+            console.log('🔍 Full API response:', result);
+            console.log('🔍 Confidence scores in response:', result.confidence_scores);
+            console.log('🔍 Confidence scores type:', typeof result.confidence_scores);
+
             // 1. Store global state
             pdfUrl = result.pdf_url;
             highlightData = result.highlights || [];
-            
+            confidenceScores = result.confidence_scores || {};
+
+            console.log('📊 Stored confidence scores:', confidenceScores);
+            console.log('📊 Confidence scores keys:', Object.keys(confidenceScores));
+
             // Build field highlight mapping (extraction field -> form field -> highlights)
             fieldHighlightMap = {};
             highlightData.forEach(h => {
                 const extractionField = h.field;
                 // Find which form field this maps to
                 let formFieldName = fieldNameMapping[extractionField] || extractionField;
-                
+
                 // The mapping should already work, but let's ensure it's correct
                 // formFieldName is already set above from fieldNameMapping
-                
+
                 // If still no match, use extraction field name directly
                 if (!formFieldName) {
                     formFieldName = extractionField;
                 }
-                
+
                 if (!fieldHighlightMap[formFieldName]) {
                     fieldHighlightMap[formFieldName] = [];
                 }
                 fieldHighlightMap[formFieldName].push(h);
-                
+
                 console.log(`📌 Mapped highlight: ${extractionField} → ${formFieldName} (${h.page})`);
             });
-            
+
             console.log(`✅ Built highlight map for ${Object.keys(fieldHighlightMap).length} form fields`);
-            
+            console.log(`✅ Loaded confidence scores for ${Object.keys(confidenceScores).length} fields`);
+
             // 2. Populate form with extracted data
             if (result.data) {
                 populateForm(result.data);
@@ -616,18 +628,31 @@ async function uploadAndExtract(file) {
                 }
             }
             
+            // Show AI confidence legend if there are low-confidence fields
+            const hasLowConfidence = Object.values(confidenceScores).some(score => score < CONFIDENCE_THRESHOLD);
+            const aiConfidenceLegend = document.getElementById('aiConfidenceLegend');
+            if (aiConfidenceLegend) {
+                if (hasLowConfidence) {
+                    aiConfidenceLegend.style.display = 'block';
+                    console.log('✅ Showing AI confidence legend due to low-confidence fields');
+                } else {
+                    aiConfidenceLegend.style.display = 'none';
+                    console.log('ℹ️ No low-confidence fields detected, hiding legend');
+                }
+            }
+
             // Update UI state
             document.getElementById('formStatus').textContent = 'Draft (AI Extracted)';
             if (pdfRendered) {
                 if (pdfPlaceholder) pdfPlaceholder.style.display = 'none';
                 if (pdfViewerContainer) pdfViewerContainer.style.display = 'block';
-                
+
                 // Show Review Mode button
                 const reviewModeBtn = document.getElementById('reviewModeBtn');
                 if (reviewModeBtn) {
                     reviewModeBtn.style.display = 'inline-block';
                 }
-                
+
                 // Setup review mode
                 setupReviewMode();
             }
@@ -1148,38 +1173,38 @@ function populateForm(data) {
         console.error('Form not found');
         return;
     }
-    
+
     console.log('📝 Populating form with extracted data:', data);
-    
+
     for (const fieldName in data) {
         if (data.hasOwnProperty(fieldName)) {
             // Skip metadata fields
             if (fieldName === '_metadata') continue;
-            
+
             let formFieldName = fieldName;
-            
+
             // Check if field name needs mapping
             if (fieldNameMapping[fieldName]) {
                 formFieldName = fieldNameMapping[fieldName];
                 console.log(`   ↳ Mapping ${fieldName} → ${formFieldName}`);
             }
-            
+
             const input = form.querySelector(`[name="${formFieldName}"]`);
             if (input) {
                 let value = data[fieldName];
-                
+
                 // Skip null, empty, or invalid values
                 if (value === null || value === '' || value === 'null' || value === 'None') {
                     continue;
                 }
-                
+
                 // Handle special cases
                 if (fieldName === 'rental_2' && value && data['rental_1']) {
                     // If rental_2 exists but rental_amount already has rental_1, skip
                     console.log(`   ⏭️ Skipping rental_2 (already have rental_1)`);
                     continue;
                 }
-                
+
                 // Handle different input types
                 if (input.type === 'checkbox') {
                     input.checked = (value === true || value === 'true' || value === 'Yes' || value === 'yes');
@@ -1194,26 +1219,62 @@ function populateForm(data) {
                     // Default for text, number, date
                     input.value = value;
                 }
-                
+
                 // Trigger change event for fields with dependencies
                 if (input.name === 'lease_start_date' || input.name === 'lease_end_date') {
                     input.dispatchEvent(new Event('change'));
                 }
-                
+
                 console.log(`   ✅ Set ${formFieldName} = ${value}`);
-                
+
                 // Add a class to indicate this field was auto-populated
                 const formGroup = input.closest('.form-group');
                 if (formGroup) {
                     formGroup.classList.add('extracted-field');
+
+                    // Check confidence score and apply low-confidence styling
+                    const confidenceScore = confidenceScores[fieldName] || confidenceScores[formFieldName];
+                    console.log(`   📊 Confidence check for ${formFieldName}: fieldName=${fieldName}, formFieldName=${formFieldName}, confidenceScore=${confidenceScore}, threshold=${CONFIDENCE_THRESHOLD}`);
+
+                    if (confidenceScore !== undefined && confidenceScore < CONFIDENCE_THRESHOLD) {
+                        formGroup.classList.add('low-confidence-field');
+                        console.log(`   ⚠️ Low confidence (${confidenceScore.toFixed(2)}) for ${formFieldName}`);
+
+                        // Add confidence badge
+                        addConfidenceBadge(formGroup, confidenceScore);
+                    } else if (confidenceScore !== undefined) {
+                        console.log(`   ✅ High confidence (${confidenceScore.toFixed(2)}) for ${formFieldName}`);
+                    } else {
+                        console.log(`   ❓ No confidence score found for ${formFieldName}`);
+                    }
                 }
             } else {
                 console.log(`   ⚠️ Form field not found: ${formFieldName}`);
             }
         }
     }
-    
+
     console.log('✅ Form population complete');
+}
+
+/**
+ * Add confidence badge to low-confidence fields
+ */
+function addConfidenceBadge(formGroup, confidenceScore) {
+    // Remove existing badge if any
+    const existingBadge = formGroup.querySelector('.confidence-badge');
+    if (existingBadge) {
+        existingBadge.remove();
+    }
+
+    // Create badge
+    const badge = document.createElement('span');
+    badge.className = 'confidence-badge';
+    badge.textContent = `${(confidenceScore * 100).toFixed(0)}%`;
+    badge.title = `AI Confidence: ${(confidenceScore * 100).toFixed(1)}% - Low confidence field, please verify`;
+
+    // Add to form group
+    formGroup.appendChild(badge);
 }
 
 /**

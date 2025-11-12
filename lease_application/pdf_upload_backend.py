@@ -151,39 +151,66 @@ def extract_lease_pdf():
             logger.info(f"🤖 Starting AI extraction (text length: {original_text_length} chars, truncated: {len(text[:MAX_TEXT_LENGTH])} chars)")
             ai_extract_start = time.time()
             try:
-                # Start with text-based extraction (more reliable)
-                if extract_lease_info_from_text is not None:
+                # Use PDF-based extraction for confidence scores and better accuracy
+                if extract_lease_info_from_pdf is not None:
                     logger.debug(f"   🔑 API key provided: {'Yes' if api_key else 'No (using env var)'}")
-                    logger.debug(f"   📤 Sending text to AI model...")
-                    extracted_data = extract_lease_info_from_text(text, api_key)
-                    
+                    logger.debug(f"   📤 Sending PDF to AI model...")
+                    extracted_data = extract_lease_info_from_pdf(temp_path, api_key)
+
                     ai_extract_time = time.time() - ai_extract_start
                     logger.debug(f"   ⏱️ AI extraction took {ai_extract_time:.2f}s")
-                    
-                    # Check if text extraction succeeded
+
+                    # Check if PDF extraction succeeded
                     if 'error' in extracted_data:
-                        error_msg = extracted_data.get('error', 'Text extraction failed')
+                        error_msg = extracted_data.get('error', 'PDF extraction failed')
                         logger.error(f"❌ AI returned error: {error_msg}")
                         logger.debug(f"   🔍 Full AI response: {extracted_data}")
-                        raise Exception(error_msg)
-                    
+                        # Fallback to text-based extraction if PDF extraction fails
+                        logger.info(f"⚠️ PDF extraction failed, trying text-based extraction...")
+                        if extract_lease_info_from_text is not None:
+                            extracted_data = extract_lease_info_from_text(text, api_key)
+                            if 'error' in extracted_data:
+                                raise Exception(extracted_data.get('error', 'Both PDF and text extraction failed'))
+                        else:
+                            raise Exception(error_msg)
+
+                    # Validate that AI actually returned some data
+                    if not extracted_data or len([k for k in extracted_data.keys() if k not in ['_metadata', '_original_texts']]) == 0:
+                        logger.error(f"❌ AI extraction returned no data")
+                        logger.debug(f"   🔍 AI response: {extracted_data}")
+                        raise Exception("AI extraction returned no data. Please check your API key and try again.")
+
                     # Log extracted fields
                     extracted_fields = {k: v for k, v in extracted_data.items() if k != '_metadata'}
                     field_count = len(extracted_fields)
                     logger.info(f"✅ AI extraction successful: {field_count} fields extracted in {ai_extract_time:.2f}s")
-                    
+
                     # Log key fields for debugging
                     key_fields = ['description', 'lease_start_date', 'end_date', 'rental_1', 'currency', 'asset_class']
                     for field in key_fields:
                         if field in extracted_fields and extracted_fields[field]:
                             logger.debug(f"   ✅ {field}: {extracted_fields[field]}")
-                    
+
                     # Log fields that failed to extract
                     empty_fields = [k for k, v in extracted_fields.items() if not v or v == '']
                     if empty_fields:
                         logger.debug(f"   ⚠️ Empty/missing fields: {', '.join(empty_fields[:10])}{'...' if len(empty_fields) > 10 else ''}")
                 else:
-                    raise Exception("Text-based extraction is not available. Please install google-generativeai.")
+                    # Fallback to text-based extraction if PDF extraction not available
+                    logger.info(f"⚠️ PDF extraction not available, using text-based extraction...")
+                    if extract_lease_info_from_text is not None:
+                        extracted_data = extract_lease_info_from_text(text, api_key)
+
+                        if 'error' in extracted_data:
+                            raise Exception(extracted_data.get('error', 'Text extraction failed'))
+
+                        # Validate that AI actually returned some data
+                        if not extracted_data or len([k for k in extracted_data.keys() if k not in ['_metadata', '_original_texts']]) == 0:
+                            logger.error(f"❌ Text-based AI extraction returned no data")
+                            logger.debug(f"   🔍 AI response: {extracted_data}")
+                            raise Exception("AI extraction returned no data. Please check your API key and try again.")
+                    else:
+                        raise Exception("AI extraction is not available. Please install google-generativeai.")
                 
             except Exception as ai_error:
                 ai_extract_time = time.time() - ai_extract_start
@@ -229,9 +256,35 @@ def extract_lease_pdf():
             logger.debug(f"      - Fields extracted: {field_count}")
             logger.debug(f"      - Time breakdown: Total={total_time:.2f}s, PDF extraction={pdf_extract_time:.2f}s, AI processing={ai_extract_time:.2f}s")
             
+            # Extract confidence scores from metadata if available
+            confidence_scores = {}
+            if '_metadata' in extracted_data:
+                metadata = extracted_data['_metadata']
+                logger.debug(f"   📊 Found metadata with {len(metadata)} fields")
+                for field_name, field_info in metadata.items():
+                    if isinstance(field_info, dict) and 'confidence_score' in field_info:
+                        confidence_score = field_info['confidence_score']
+                        confidence_scores[field_name] = confidence_score
+                        logger.debug(f"   📊 Confidence score for {field_name}: {confidence_score}")
+                logger.debug(f"   📊 Total confidence scores extracted: {len(confidence_scores)}")
+            else:
+                logger.debug(f"   ⚠️ No metadata found in extracted data")
+
+            # If no confidence scores were extracted, create default ones for all extracted fields
+            if not confidence_scores:
+                logger.info(f"   📊 AI did not provide confidence scores, using default scores (0.8) for all fields")
+                for field_name, field_value in extracted_data.items():
+                    if field_name not in ['_metadata', '_original_texts'] and field_value is not None:
+                        confidence_scores[field_name] = 0.8  # Default high confidence
+                        logger.debug(f"   📊 Default confidence score for {field_name}: 0.8")
+                logger.info(f"   📊 Created {len(confidence_scores)} default confidence scores")
+            else:
+                logger.info(f"   📊 AI provided {len(confidence_scores)} confidence scores")
+
             response_data = {
                 'success': True,
                 'data': extracted_data,
+                'confidence_scores': confidence_scores,
                 'metadata': {
                     'filename': file.filename,
                     'text_length': len(text),
@@ -257,4 +310,3 @@ def extract_lease_pdf():
             'success': False,
             'error': f'Internal error: {str(e)}'
         }), 500
-
